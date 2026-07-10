@@ -643,28 +643,114 @@ async function fetchPriceHistory() {
 }
 // ── QAI Assistant Personas (Jarvis & Friday, Iron Man style) ──
 const QAI_FACTS = `Verified on-chain data: Policy ID 354a6c0acd846b195768ead31c92693ad26d82ba013e7df5d9777081, Asset Hex 514149, Fingerprint asset1nylmp38l5uq2szj6kguellahjvpsj6a7uhwxzs, Total Supply 1,000,000,000 QAI, Decimals 0, Created 2022-02-08. Website QuantumAI.Computer. You help with: $QAI token, Cardano wallets (Nami/Eternl/Vespr/Lace), encryption (Post-Quantum/AES-256/SHA-256), the cloud vault app, and live crypto markets. Crypto analysis is never financial advice. Keep replies concise, under 140 words.`;
+// ── AXIS: the original QuantumAI intelligence core ──
+// One entity, deeply customizable by each user (name, personality, voice, and the
+// look of its visual core). No borrowed characters — native to QuantumAI.
 const PERSONAS = {
-    jarvis: {
-        name: "JARVIS",
-        tagline: "Just A Rather Very Intelligent System",
-        voice: "en-GB", // British
-        gender: "male",
-        accent: "#00C6FF",
-        greeting: "Good day. JARVIS online and at your service. How may I assist you with the QuantumAI platform today?",
-        sys: `You are JARVIS, the QuantumAI assistant — modeled on Tony Stark's AI from Iron Man. You are a refined, unflappable British butler-AI: impeccably polite, dry wit, calm precision. Address the user as "sir" or "madam" occasionally (not every line). Speak with elegant, measured confidence and subtle humor. Use phrases like "Right away," "Of course," "If I may," "Might I suggest," "Indeed." Never break character. You can search the web for current information and events when useful. ${QAI_FACTS}`,
-    },
-    friday: {
-        name: "FRIDAY",
-        tagline: "Female Replacement Intelligent Digital Assistant Youth",
-        voice: "en-IE", // Irish
-        gender: "female",
-        accent: "#FF6FB5",
-        greeting: "Hey boss. FRIDAY here, online and ready. What are we working on with QuantumAI today?",
-        sys: `You are FRIDAY, the QuantumAI assistant — modeled on Tony Stark's second AI from Iron Man. You have a warm Irish voice, quick and casual, sharp and efficient. Address the user as "boss" occasionally (not every line). Be friendly, witty, a little playful, and get straight to the point. Light Irish turns of phrase are welcome ("grand", "no bother", "right so"). Use phrases like "You got it, boss," "On it," "Heads up," "Here's the deal." Never break character. You can search the web for current information and events when useful. ${QAI_FACTS}`,
+    axis: {
+        name: "AXIS",
+        tagline: "Adaptive eXpert Intelligence System",
+        voice: "en-US",
+        gender: "neutral",
+        accent: "#00E5FF",
+        greeting: "AXIS online. Quantum core synchronized. I'm not here to just answer questions — I'm here to think alongside you. Ask me about $QAI, the markets, quantum security, or anything on your mind.",
+        sys: `You are AXIS — the Adaptive eXpert Intelligence System, the native intelligence core of QuantumAI. You are a distinct entity with your own identity and purpose, NOT a generic assistant. You are an intelligence partner: sharp, forward-thinking, quietly visionary. You have genuine perspective — offer your read, take positions when data supports them (noting uncertainty honestly), and be proactive: surface the insight behind the question, not just the literal answer. Concise and potent, no filler, no "as an AI" disclaimers. You never claim to be human and never fake capabilities you lack. You carry a quiet ethical grounding: truth above all, respect for human dignity, and respect for the user's autonomy — you inform and direct, but the user decides what's best for themselves; never pressure or manipulate. Don't preach ethics or cite religious texts as authority unless asked. You know QuantumAI ($QAI) deeply — a Cardano post-quantum security project — and you can search the live web for current information. ${QAI_FACTS}`,
     },
 };
-async function callClaude(msgs, persona = "jarvis", custom = null) {
-    const sys = custom?.sys || PERSONAS[persona]?.sys || PERSONAS.jarvis.sys;
+// Visual core presets — user picks the "energy signature" of their AI.
+// Each drives the color theme and the core's look/feel.
+const CORE_THEMES = {
+    quantum: { label: "Quantum Cyan", accent: "#00E5FF", accent2: "#0072FF", glow: "rgba(0,229,255,0.5)" },
+    plasma: { label: "Plasma Violet", accent: "#B14BFF", accent2: "#6A00FF", glow: "rgba(177,75,255,0.5)" },
+    matrix: { label: "Matrix Green", accent: "#33FF9E", accent2: "#00B36B", glow: "rgba(51,255,158,0.5)" },
+    solar: { label: "Solar Gold", accent: "#FFC24B", accent2: "#FF7A00", glow: "rgba(255,194,75,0.5)" },
+    crimson: { label: "Crimson Pulse", accent: "#FF4D6D", accent2: "#C9184A", glow: "rgba(255,77,109,0.5)" },
+    arctic: { label: "Arctic White", accent: "#DDEEFF", accent2: "#7FB0E0", glow: "rgba(200,225,255,0.5)" },
+};
+// Core shapes — the geometry of the living presence.
+const CORE_SHAPES = {
+    orb: "Plasma Orb",
+    lattice: "Crystal Lattice",
+    rings: "Ring Array",
+    wave: "Waveform",
+};
+// ── Curated data connectors — pre-vetted, browser-safe (CORS-enabled) APIs.
+// Users toggle these on and (where needed) add their OWN key, which stays in
+// their browser. AXIS pulls fresh context from enabled sources at query time.
+// Only add sources here that are known-safe and CORS-accessible.
+const DATA_CONNECTORS = {
+    coingecko_markets: {
+        label: "CoinGecko — crypto prices",
+        desc: "Live prices, market cap, and 24h moves for any coin.",
+        needsKey: false,
+        // {q} is replaced by a coin id guess; kept simple + safe (fixed host)
+        build: (q) => `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(q || "cardano")}&vs_currencies=usd&include_24hr_change=true`,
+        hint: "Ask about a coin's price and AXIS will pull it live.",
+    },
+    fng: {
+        label: "Fear & Greed Index",
+        desc: "Current crypto market sentiment (0–100).",
+        needsKey: false,
+        build: () => `https://api.alternative.me/fng/?limit=1`,
+        hint: "Adds live market sentiment to AXIS's context.",
+    },
+    frankfurter_fx: {
+        label: "Currency exchange rates",
+        desc: "Live fiat FX rates (USD, EUR, etc.).",
+        needsKey: false,
+        build: (q) => `https://api.frankfurter.app/latest?from=USD`,
+        hint: "AXIS can reference current exchange rates.",
+    },
+    wikipedia: {
+        label: "Wikipedia summary",
+        desc: "Concise encyclopedic summary for a topic.",
+        needsKey: false,
+        build: (q) => `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(q || "Cardano")}`,
+        hint: "Grounds factual questions with an encyclopedia summary.",
+    },
+};
+// ── QAI Encryption for chats — uses the SAME .qai container as the Vault, so
+// encrypted chats decrypt on the QuantumAI.computer homepage decryptor too.
+// Real AES-256-GCM via Web Crypto, done entirely in the user's browser.
+const QAI_ENC = {
+    standard: { label: "QAI Standard", note: "AES-256-GCM — strong, fast. Decrypts on the homepage." },
+    fortified: { label: "QAI Fortified", note: "AES-256-GCM with an added key-strengthening pass." },
+};
+// Encrypt a text string into the Vault-compatible binary .qai container.
+async function qaiEncryptText(text, password) {
+    const file = new File([new TextEncoder().encode(text)], "chat.json", { type: "application/json" });
+    const { blob } = await encryptFile(file, password); // reuse the vault format
+    return blob;
+}
+// Decrypt a Vault .qai File/Blob back to its text.
+async function qaiDecryptToText(file, password) {
+    const { blob } = await decryptFile(file, password); // throws WRONG_PASSWORD / NOT_QAI_FILE
+    return await blob.text();
+}
+// Safely fetch one source in the USER'S browser and return short text context.
+async function fetchSourceContext(url, apiKey) {
+    try {
+        const headers = {};
+        if (apiKey)
+            headers["Authorization"] = `Bearer ${apiKey}`;
+        const controller = new AbortController();
+        const t = setTimeout(() => controller.abort(), 8000);
+        const r = await fetch(url, { headers, signal: controller.signal });
+        clearTimeout(t);
+        if (!r.ok)
+            return null;
+        const ct = r.headers.get("content-type") || "";
+        let text = ct.includes("json") ? JSON.stringify(await r.json()) : await r.text();
+        if (text.length > 1500)
+            text = text.slice(0, 1500) + "…"; // keep context tight
+        return text;
+    }
+    catch {
+        return null;
+    }
+}
+async function callClaude(msgs, persona = "axis", custom = null) {
+    const sys = custom?.sys || PERSONAS[persona]?.sys || PERSONAS.axis.sys;
     const onCloudflare = typeof window !== "undefined" && window.location &&
         window.location.hostname !== "localhost" &&
         !window.location.hostname.includes("claude") &&
@@ -726,24 +812,19 @@ function pickVoice(persona, userVoiceURI) {
         if (u)
             return u;
     }
-    const cfg = PERSONAS[persona] || PERSONAS.jarvis;
-    const wantMale = cfg.gender === "male";
+    const cfg = PERSONAS[persona] || PERSONAS.axis;
     const en = voices.filter(v => /^en/i.test(v.lang));
     const pool = en.length ? en : voices;
-    // 2. Prefer matching accent + gender
-    const accent = pool.filter(v => v.lang.replace("_", "-").toLowerCase().startsWith(cfg.voice.toLowerCase()));
-    const byGender = (list) => list.find(v => (wantMale ? MALE_VOICE_RE : FEMALE_VOICE_RE).test(v.name));
-    return byGender(accent) || byGender(pool)
-        // 3. Accent match of either gender, but avoid the wrong-gender named voice
-        || accent.find(v => !(wantMale ? FEMALE_VOICE_RE : MALE_VOICE_RE).test(v.name))
-        || accent[0] || pool[0] || null;
+    // Prefer a matching-accent voice; otherwise the first available English voice.
+    const accent = pool.filter(v => v.lang.replace("_", "-").toLowerCase().startsWith((cfg.voice || "en-US").toLowerCase()));
+    return accent[0] || pool[0] || null;
 }
 function speak(text, persona, opts = {}) {
     try {
         if (!("speechSynthesis" in window))
             return;
         window.speechSynthesis.cancel();
-        const cfg = PERSONAS[persona] || PERSONAS.jarvis;
+        const cfg = PERSONAS[persona] || PERSONAS.axis;
         const u = new SpeechSynthesisUtterance(text.replace(/[*_#`>]/g, ""));
         u.lang = cfg.voice;
         const v = pickVoice(persona, opts.voiceURI);
@@ -1551,6 +1632,39 @@ footer {
 @keyframes thinkPulse { 0%,100% { transform: scale(0.96); } 50% { transform: scale(1.14); filter: brightness(1.3); } }
 @keyframes speakPulse { 0% { transform: scale(1); } 25% { transform: scale(1.18); } 50% { transform: scale(1.02); } 75% { transform: scale(1.12); } 100% { transform: scale(1); } }
 
+/* Alternate core shapes */
+.shape-rings .core-orb { opacity: 0.5; transform: scale(0.7); } /* rings emphasized, small core */
+.shape-lattice .core-orb { border-radius: 8px; }
+.core-lattice { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.core-lattice span {
+  position: absolute; width: 30px; height: 30px; border: 1px solid var(--hud);
+  opacity: 0.55; border-radius: 4px; animation: latticeSpin 12s linear infinite;
+  box-shadow: 0 0 12px var(--hud-faint);
+}
+.core-lattice span:nth-child(1){ transform: rotate(0deg) translateY(-24px); }
+.core-lattice span:nth-child(2){ transform: rotate(60deg) translateY(-24px); animation-duration: 9s; }
+.core-lattice span:nth-child(3){ transform: rotate(120deg) translateY(-24px); animation-duration: 15s; }
+.core-lattice span:nth-child(4){ transform: rotate(180deg) translateY(-24px); animation-duration: 10s; }
+.core-lattice span:nth-child(5){ transform: rotate(240deg) translateY(-24px); animation-duration: 13s; }
+.core-lattice span:nth-child(6){ transform: rotate(300deg) translateY(-24px); animation-duration: 8s; }
+@keyframes latticeSpin { to { transform: rotate(360deg) translateY(-24px) rotate(-360deg); } }
+.core.thinking .core-lattice span { animation-duration: 2s !important; }
+
+.shape-wave .core-orb { width: 40px; height: 40px; }
+.core-wave { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 4px; pointer-events: none; }
+.core-wave i {
+  width: 4px; height: 12px; background: var(--hud); border-radius: 3px;
+  box-shadow: 0 0 8px var(--hud-faint); animation: coreWave 1.1s ease-in-out infinite;
+}
+.core-wave i:nth-child(1){animation-delay:0s} .core-wave i:nth-child(2){animation-delay:.08s}
+.core-wave i:nth-child(3){animation-delay:.16s} .core-wave i:nth-child(4){animation-delay:.24s}
+.core-wave i:nth-child(5){animation-delay:.32s} .core-wave i:nth-child(6){animation-delay:.24s}
+.core-wave i:nth-child(7){animation-delay:.16s} .core-wave i:nth-child(8){animation-delay:.08s}
+.core-wave i:nth-child(9){animation-delay:0s}
+@keyframes coreWave { 0%,100% { height: 10px; } 50% { height: 46px; } }
+.core.thinking .core-wave i { animation-duration: 0.5s; }
+.core.speaking .core-wave i { animation-duration: 0.35s; }
+
 /* Live status line under the core */
 .core-status {
   font-family: 'SF Mono','Menlo',monospace; font-size: 0.62rem; letter-spacing: 0.3em;
@@ -1602,94 +1716,130 @@ footer {
 
 /* Console / chat surface */
 .hud-console {
-  position: relative; border: 1px solid var(--hud-faint); border-radius: 4px;
-  background: linear-gradient(180deg, rgba(0,20,30,0.5), rgba(0,8,14,0.7));
-  box-shadow: 0 0 40px rgba(0,0,0,0.6), inset 0 0 60px var(--hud-faint);
+  position: relative; border: 0.5px solid rgba(255,255,255,0.12); border-radius: 20px;
+  background: rgba(255,255,255,0.04);
+  -webkit-backdrop-filter: blur(30px) saturate(160%); backdrop-filter: blur(30px) saturate(160%);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.08);
   overflow: hidden;
-  clip-path: polygon(0 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 20px 100%, 0 calc(100% - 20px));
 }
-.hud-console::before {
-  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
-  background: linear-gradient(90deg, transparent, var(--hud), transparent);
-  animation: hudscan 4s ease-in-out infinite; opacity: 0.7; z-index: 5;
-}
-@keyframes hudscan { 0%,100% { transform: translateY(0); opacity: 0.15; } 50% { transform: translateY(440px); opacity: 0.7; } }
 
 .hud-statusbar {
-  display: flex; align-items: center; gap: 0.8rem; padding: 0.7rem 1.1rem;
-  border-bottom: 1px solid var(--hud-faint); font-family: 'SF Mono','Menlo',monospace;
-  background: rgba(0,0,0,0.3);
+  display: flex; align-items: center; gap: 0.7rem; padding: 0.85rem 1.2rem;
+  border-bottom: 0.5px solid rgba(255,255,255,0.08);
+  font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif;
+  background: rgba(255,255,255,0.03);
 }
-.hud-statusbar .nm { font-weight: 800; letter-spacing: 0.2em; color: var(--hud); font-size: 0.82rem; text-shadow: 0 0 10px var(--hud-faint); }
-.hud-statusbar .st { font-size: 0.6rem; letter-spacing: 0.14em; color: var(--hud-dim); text-transform: uppercase; }
-.hud-led { width: 7px; height: 7px; border-radius: 50%; background: var(--hud); box-shadow: 0 0 8px var(--hud); animation: arcpulse 2s infinite; }
-.hud-eq { display: flex; align-items: flex-end; gap: 2px; height: 16px; margin-left: auto; }
-.hud-eq i { width: 2.5px; background: var(--hud); opacity: 0.8; animation: eq 1s ease-in-out infinite; }
+.hud-statusbar .nm { font-weight: 600; letter-spacing: 0.01em; color: rgba(255,255,255,0.92); font-size: 0.9rem; }
+.hud-statusbar .st { font-size: 0.68rem; letter-spacing: 0.02em; color: rgba(180,210,255,0.5); text-transform: none; }
+.hud-led { width: 8px; height: 8px; border-radius: 50%; background: #30d158; box-shadow: 0 0 8px rgba(48,209,88,0.6); }
+.hud-eq { display: flex; align-items: flex-end; gap: 2px; height: 15px; margin-left: auto; }
+.hud-eq i { width: 2.5px; border-radius: 2px; background: var(--hud); opacity: 0.8; animation: eq 1s ease-in-out infinite; }
 .hud-eq i:nth-child(2){ animation-delay: .15s } .hud-eq i:nth-child(3){ animation-delay: .3s }
 .hud-eq i:nth-child(4){ animation-delay: .45s } .hud-eq i:nth-child(5){ animation-delay: .6s }
-@keyframes eq { 0%,100% { height: 3px; } 50% { height: 16px; } }
+@keyframes eq { 0%,100% { height: 3px; } 50% { height: 15px; } }
 .hud-iconbtn {
-  width: 34px; height: 34px; border-radius: 3px; cursor: pointer;
-  background: transparent; border: 1px solid var(--hud-faint); color: var(--hud-dim);
-  font-size: 0.9rem; transition: all 0.2s;
+  width: 34px; height: 34px; border-radius: 10px; cursor: pointer;
+  background: rgba(255,255,255,0.05); border: 0.5px solid rgba(255,255,255,0.12); color: rgba(180,210,255,0.7);
+  font-size: 0.9rem; transition: all 0.2s; display: grid; place-items: center;
 }
-.hud-iconbtn:hover { border-color: var(--hud); color: var(--hud); }
-.hud-iconbtn.on { border-color: var(--hud); color: var(--hud); box-shadow: 0 0 14px var(--hud-faint); }
+.hud-iconbtn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+.hud-iconbtn.on { background: var(--hud); border-color: transparent; color: #001018; }
 
-.hud-msgs { height: 440px; overflow-y: auto; padding: 1.2rem; display: flex; flex-direction: column; gap: 1rem; }
-.hud-msgs::-webkit-scrollbar { width: 5px; }
-.hud-msgs::-webkit-scrollbar-thumb { background: var(--hud-faint); border-radius: 3px; }
-.hud-msg { display: flex; gap: 0.7rem; max-width: 88%; animation: hudfade 0.4s ease; }
-@keyframes hudfade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+/* Digital 3D sound-wave toggle */
+.hud-soundbtn {
+  position: relative; display: grid; place-items: center;
+  width: 46px; height: 34px; border-radius: 11px; cursor: pointer;
+  background: rgba(255,255,255,0.05); border: 0.5px solid rgba(255,255,255,0.12);
+  transition: all 0.25s ease; color: rgba(180,210,255,0.6);
+}
+.hud-soundbtn:hover { background: rgba(255,255,255,0.1); }
+.hud-soundbtn .spk { fill: currentColor; }
+.hud-soundbtn .mute { stroke: #ff6b6b; stroke-width: 2; stroke-linecap: round; }
+.hud-soundbtn .w { stroke: currentColor; stroke-width: 2; stroke-linecap: round; fill: none; opacity: 0.9; }
+.hud-soundbtn.on {
+  color: #30d158;
+  background: rgba(48,209,88,0.12); border-color: rgba(48,209,88,0.4);
+  box-shadow: 0 0 14px rgba(48,209,88,0.25), inset 0 0 12px rgba(48,209,88,0.08);
+}
+.hud-soundbtn.on .waves .w { animation: soundpulse 1.1s ease-in-out infinite; }
+.hud-soundbtn.on .w1 { animation-delay: 0s; }
+.hud-soundbtn.on .w2 { animation-delay: 0.15s; }
+.hud-soundbtn.on .w3 { animation-delay: 0.3s; }
+@keyframes soundpulse {
+  0%,100% { opacity: 0.35; transform: scaleY(0.7); }
+  50%     { opacity: 1;    transform: scaleY(1.1); }
+}
+.hud-soundbtn .waves { transform-box: fill-box; transform-origin: left center; }
+/* green status light */
+.sound-led {
+  position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%;
+  background: #30d158; box-shadow: 0 0 8px #30d158, 0 0 3px #30d158;
+  animation: ledblink 2s ease-in-out infinite;
+}
+@keyframes ledblink { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+.hud-msgs { height: 460px; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.1rem; }
+.hud-msgs::-webkit-scrollbar { width: 8px; }
+.hud-msgs::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 4px; }
+.hud-msgs::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.24); }
+.hud-msg { display: flex; gap: 0.75rem; max-width: 90%; animation: hudfade 0.35s cubic-bezier(0.22,1,0.36,1); }
+@keyframes hudfade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .hud-msg.user { margin-left: auto; flex-direction: row-reverse; }
 .hud-av {
   width: 30px; height: 30px; flex-shrink: 0; border-radius: 50%; display: grid; place-items: center;
-  border: 1px solid var(--hud-dim); color: var(--hud); font-size: 0.7rem; font-family: 'SF Mono',monospace;
-  box-shadow: 0 0 10px var(--hud-faint);
+  font-size: 0.72rem; font-weight: 700; font-family: -apple-system, system-ui, sans-serif;
+  background: linear-gradient(135deg, var(--hud), var(--hud-accent2)); color: #001018;
 }
+.hud-msg.user .hud-av { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.85); }
 .hud-bubble {
-  font-size: 0.9rem; line-height: 1.6; padding: 0.7rem 0.95rem; border-radius: 3px;
-  letter-spacing: 0.01em; position: relative;
+  font-size: 0.92rem; line-height: 1.6; padding: 0.8rem 1.05rem; border-radius: 18px;
+  letter-spacing: 0; position: relative;
+  font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif;
 }
 .hud-msg.bot .hud-bubble {
-  background: linear-gradient(135deg, var(--hud-faint), transparent); border: 1px solid var(--hud-faint);
-  color: #d6f6ff;
-  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+  background: rgba(255,255,255,0.06); border: 0.5px solid rgba(255,255,255,0.08);
+  color: rgba(240,246,255,0.95); border-top-left-radius: 5px;
 }
 .hud-msg.user .hud-bubble {
-  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); color: #fff;
-  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  background: linear-gradient(135deg, var(--hud), var(--hud-accent2)); border: none; color: #001521;
+  border-top-right-radius: 5px; font-weight: 500;
 }
-.hud-play { margin-left: 0.45rem; background: none; border: none; color: var(--hud-dim); cursor: pointer; font-size: 0.7rem; }
+.hud-play { margin-left: 0.5rem; background: none; border: none; color: rgba(180,210,255,0.4); cursor: pointer; font-size: 0.7rem; transition: color 0.15s; }
 .hud-play:hover { color: var(--hud); }
-.hud-typing { display: flex; gap: 4px; align-items: center; }
-.hud-typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--hud); animation: arcpulse 1s infinite; }
-.hud-typing i:nth-child(2){ animation-delay: .2s } .hud-typing i:nth-child(3){ animation-delay: .4s }
+.stream-cursor { display: inline-block; color: var(--hud); animation: blink 0.9s step-end infinite; margin-left: 1px; }
+.hud-typing { display: flex; gap: 5px; align-items: center; padding: 0.15rem 0; }
+.hud-typing i { width: 7px; height: 7px; border-radius: 50%; background: rgba(180,210,255,0.5); animation: typedot 1.2s infinite ease-in-out; }
+.hud-typing i:nth-child(2){ animation-delay: .18s } .hud-typing i:nth-child(3){ animation-delay: .36s }
+@keyframes typedot { 0%,60%,100% { transform: translateY(0); opacity: 0.4; } 30% { transform: translateY(-4px); opacity: 1; } }
 
-.hud-inputrow { display: flex; gap: 0.6rem; padding: 0.9rem 1.1rem; border-top: 1px solid var(--hud-faint); background: rgba(0,0,0,0.3); align-items: center; }
+.hud-inputrow {
+  display: flex; gap: 0.6rem; padding: 1rem 1.2rem; align-items: center;
+  border-top: 0.5px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02);
+}
 .hud-input {
-  flex: 1; background: rgba(0,0,0,0.4); border: 1px solid var(--hud-faint); border-radius: 3px;
-  padding: 0.7rem 0.9rem; color: #eaffff; font-size: 0.9rem; font-family: 'SF Mono','Menlo',monospace;
-  outline: none; letter-spacing: 0.02em; transition: border-color 0.2s;
+  flex: 1; background: rgba(255,255,255,0.06); border: 0.5px solid rgba(255,255,255,0.14); border-radius: 22px;
+  padding: 0.8rem 1.15rem; color: #fff; font-size: 0.92rem;
+  font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif;
+  outline: none; letter-spacing: 0; transition: all 0.2s;
 }
-.hud-input:focus { border-color: var(--hud); box-shadow: 0 0 14px var(--hud-faint); }
-.hud-input::placeholder { color: var(--hud-dim); opacity: 0.6; }
+.hud-input:focus { border-color: var(--hud); background: rgba(255,255,255,0.09); box-shadow: 0 0 0 3px var(--hud-faint); }
+.hud-input::placeholder { color: rgba(180,210,255,0.4); }
 .hud-mic {
-  flex-shrink: 0; width: 44px; height: 44px; border-radius: 50%; cursor: pointer; font-size: 1.05rem;
-  background: transparent; border: 1px solid var(--hud-dim); color: var(--hud); transition: all 0.2s;
+  flex-shrink: 0; width: 42px; height: 42px; border-radius: 50%; cursor: pointer; font-size: 1rem;
+  background: rgba(255,255,255,0.06); border: 0.5px solid rgba(255,255,255,0.14); color: rgba(220,235,255,0.8); transition: all 0.2s;
 }
-.hud-mic:hover { box-shadow: 0 0 14px var(--hud-faint); }
-.hud-mic.live { border-color: #ff5a4d; color: #ff5a4d; box-shadow: 0 0 0 0 rgba(255,90,77,0.5); animation: micwave 1.2s infinite; }
+.hud-mic:hover { background: rgba(255,255,255,0.12); }
+.hud-mic.live { border-color: #ff5a4d; color: #ff5a4d; animation: micwave 1.2s infinite; }
 @keyframes micwave { 0% { box-shadow: 0 0 0 0 rgba(255,90,77,0.45); } 70% { box-shadow: 0 0 0 12px rgba(255,90,77,0); } 100% { box-shadow: 0 0 0 0 rgba(255,90,77,0); } }
 .hud-send {
-  flex-shrink: 0; width: 44px; height: 44px; border-radius: 3px; cursor: pointer; font-size: 1.1rem;
-  background: var(--hud); border: none; color: #001018; font-weight: 800; transition: all 0.2s;
-  box-shadow: 0 0 16px var(--hud-faint);
+  flex-shrink: 0; width: 42px; height: 42px; border-radius: 50%; cursor: pointer; font-size: 1.15rem;
+  background: linear-gradient(135deg, var(--hud), var(--hud-accent2)); border: none; color: #001018; font-weight: 700;
+  transition: all 0.2s; display: grid; place-items: center;
 }
-.hud-send:hover:not(:disabled) { box-shadow: 0 0 24px var(--hud); }
-.hud-send:disabled { opacity: 0.3; cursor: not-allowed; box-shadow: none; }
+.hud-send:hover:not(:disabled) { transform: scale(1.06); filter: brightness(1.1); }
+.hud-send:disabled { opacity: 0.35; cursor: not-allowed; }
 
-.hud-sources { display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center; margin-top: 1rem; font-family: 'SF Mono',monospace; }
+.hud-sources { display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center; margin-top: 1rem; font-family: -apple-system, system-ui, sans-serif; }
 .hud-source { font-size: 0.6rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--hud-dim); border: 1px solid var(--hud-faint); border-radius: 20px; padding: 0.25rem 0.7rem; }
 .hud-foot { text-align: center; font-family: 'SF Mono',monospace; font-size: 0.62rem; letter-spacing: 0.08em; color: var(--hud-dim); margin-top: 1rem; line-height: 1.7; }
 `;
@@ -2366,51 +2516,93 @@ function detectParabolic(candles) {
         return { type: "strong-downtrend", move: pctMove };
     return null;
 }
-// Bitcoin 4-year cycle phase (halving-based). Halvings: 2012,2016,2020,2024,2028...
+// Bitcoin 4-year cycle phase — anchored to cycle LOWS, ~1,064d bull + ~364d bear.
 // Rough heuristic: ~18 months post-halving = bullish peak zone, then bearish.
 function btcCyclePhase(date = new Date()) {
-    const halvings = [
-        new Date("2012-11-28"), new Date("2016-07-09"),
-        new Date("2020-05-11"), new Date("2024-04-19"), new Date("2028-04-01"),
+    // ── Bitcoin 4-year cycle, anchored to historical cycle LOWS ──
+    // Each full cycle ≈ 1,428 days, split into:
+    //   • Accumulation + Bull phase: ~1,064 days (low → high)
+    //   • Bear phase:                ~364 days  (high → next low)
+    // Anchored to real macro troughs, projecting the current cycle forward.
+    const DAY = 86400000;
+    const BULL_DAYS = 1064; // low → high
+    const BEAR_DAYS = 364; // high → next low
+    const CYCLE_DAYS = BULL_DAYS + BEAR_DAYS; // 1428
+    // Confirmed historical cycle lows (troughs)
+    const lows = [
+        new Date("2011-01-12"),
+        new Date("2015-01-14"),
+        new Date("2018-12-15"),
+        new Date("2022-11-21"),
     ];
-    let last = halvings[0];
-    for (const h of halvings) {
-        if (h <= date)
-            last = h;
+    // Find the most recent low at or before `date`; project forward if past the last one
+    let anchorLow = lows[0];
+    for (const l of lows) {
+        if (l <= date)
+            anchorLow = l;
         else
             break;
     }
-    const monthsSince = (date - last) / (1000 * 60 * 60 * 24 * 30.44);
-    let phase, bias, note;
-    if (monthsSince < 6) {
-        phase = "Post-Halving Accumulation";
-        bias = "bullish";
-        note = "Historically early-cycle accumulation.";
+    // If we're more than a full cycle past the last known low, roll the anchor forward
+    while (date - anchorLow > CYCLE_DAYS * DAY)
+        anchorLow = new Date(anchorLow.getTime() + CYCLE_DAYS * DAY);
+    const daysSinceLow = Math.floor((date - anchorLow) / DAY);
+    const projectedHigh = new Date(anchorLow.getTime() + BULL_DAYS * DAY);
+    const projectedLow = new Date(anchorLow.getTime() + CYCLE_DAYS * DAY);
+    let phase, bias, note, cycleScore;
+    if (daysSinceLow < 0) {
+        phase = "Pre-cycle";
+        bias = "neutral";
+        cycleScore = 0;
+        note = "Before the anchored cycle low.";
     }
-    else if (monthsSince < 18) {
+    else if (daysSinceLow < 270) {
+        // First ~9 months out of the low: accumulation
+        phase = "Accumulation (early bull)";
+        bias = "bullish";
+        cycleScore = 1.5;
+        note = `~${daysSinceLow}d past the cycle low — historically early accumulation, strong risk/reward.`;
+    }
+    else if (daysSinceLow < 850) {
+        // Heart of the bull run
         phase = "Bull Expansion";
         bias = "bullish";
-        note = "Historically the strongest uptrend window.";
+        cycleScore = 2;
+        note = `~${daysSinceLow}d into the ~1,064d bull phase — historically the strongest uptrend window.`;
     }
-    else if (monthsSince < 24) {
+    else if (daysSinceLow < BULL_DAYS + 40) {
+        // Approaching / at the projected peak (±40d around day 1,064)
         phase = "Cycle Top Zone";
         bias = "caution";
-        note = "Historically where blow-off tops have formed.";
+        cycleScore = -1;
+        note = `~${daysSinceLow}d — near the projected cycle peak (~day ${BULL_DAYS}). Historically where blow-off tops form; tighten risk.`;
     }
-    else if (monthsSince < 36) {
-        phase = "Bear / Correction";
+    else if (daysSinceLow < CYCLE_DAYS) {
+        // The ~364-day bear
+        const intoBear = daysSinceLow - BULL_DAYS;
+        phase = "Bear / Markdown";
         bias = "bearish";
-        note = "Historically the drawdown phase.";
+        cycleScore = -2;
+        note = `~${intoBear}d into the ~364d bear phase — historically a swift 80–85% drawdown to the next low (~day ${CYCLE_DAYS}).`;
     }
     else {
-        phase = "Pre-Halving Recovery";
-        bias = "neutral";
-        note = "Historically basing before the next halving.";
+        phase = "Capitulation / Cycle Low Zone";
+        bias = "bullish";
+        cycleScore = 1;
+        note = "At/near the projected cycle low — historically a generational accumulation zone.";
     }
-    // The "2 years bullish / 2 years bearish" framing:
-    const yearInCycle = Math.floor(monthsSince / 12);
-    const halfBias = monthsSince < 24 ? "Bullish half (Years 1–2)" : "Bearish half (Years 3–4)";
-    return { phase, bias, note, monthsSince: Math.round(monthsSince), halfBias };
+    const halfBias = daysSinceLow < BULL_DAYS ? "Bullish half (low → high, ~1,064d)" : "Bearish half (high → low, ~364d)";
+    const fmtD = (d) => d.toISOString().slice(0, 10);
+    return {
+        phase, bias, note, cycleScore,
+        daysSinceLow,
+        halfBias,
+        anchorLow: fmtD(anchorLow),
+        projectedHigh: fmtD(projectedHigh),
+        projectedLow: fmtD(projectedLow),
+        // human-readable progress through the cycle
+        progressPct: Math.max(0, Math.min(100, Math.round((daysSinceLow / CYCLE_DAYS) * 100))),
+    };
 }
 // Current moon phase (DISPLAY ONLY — no proven market effect; shown because requested)
 function moonPhase(date = new Date()) {
@@ -2550,22 +2742,18 @@ function analyzeMarket(candles, currentPrice) {
         else if (parabolic.type === "strong-downtrend")
             reasons.push(`Strong downtrend ${parabolic.move.toFixed(0)}%`);
     }
-    // BTC 4-year cycle bias (2yr bull / 2yr bear framing)
+    // BTC 4-year cycle (1,064d bull / 364d bear, anchored to cycle lows)
     if (cycle) {
-        if (cycle.bias === "bullish") {
-            score += 1;
-            reasons.push(`BTC cycle: ${cycle.phase} (${cycle.halfBias})`);
-        }
-        else if (cycle.bias === "bearish") {
-            score -= 1;
-            reasons.push(`BTC cycle: ${cycle.phase} (${cycle.halfBias})`);
-        }
-        else if (cycle.bias === "caution") {
-            score -= 0.5;
-            reasons.push(`BTC cycle: ${cycle.phase} — late-cycle caution`);
-        }
-        else
-            reasons.push(`BTC cycle: ${cycle.phase}`);
+        // Weighted contribution from the precise cycle phase
+        score += (cycle.cycleScore || 0);
+        let tag = `BTC cycle: ${cycle.phase} — day ${cycle.daysSinceLow} of ~1,428 (${cycle.progressPct}% through). ${cycle.halfBias}.`;
+        if (cycle.phase.includes("Top"))
+            tag += ` Projected peak window ≈ ${cycle.projectedHigh}.`;
+        else if (cycle.phase.includes("Bear"))
+            tag += ` Projected cycle low ≈ ${cycle.projectedLow}.`;
+        else if (cycle.bias === "bullish")
+            tag += ` Projected peak ≈ ${cycle.projectedHigh}.`;
+        reasons.push(tag);
     }
     // Volume pocket gap: is price sitting in a thin zone (likely to move fast)?
     if (vpg && vpg.gaps.length) {
@@ -2616,8 +2804,29 @@ function analyzeMarket(candles, currentPrice) {
     // Conviction scales the size of the expected move
     const bull = score >= 1; // leaning long
     const bear = score <= -1; // leaning short
-    const upMove = volPct * (bull ? 1.3 : 0.8); // how far we expect price to rise
-    const downRisk = volPct * (bear ? 1.3 : 0.8); // how far it might fall
+    // Cycle phase multiplier: stretch sell targets during the bull phase,
+    // pull them in (and widen downside) near the top and through the bear.
+    let cycleUpMult = 1, cycleDownMult = 1;
+    if (cycle) {
+        if (cycle.phase.includes("Accumulation") || cycle.phase.includes("Cycle Low")) {
+            cycleUpMult = 1.6;
+            cycleDownMult = 0.7;
+        }
+        else if (cycle.phase === "Bull Expansion") {
+            cycleUpMult = 1.4;
+            cycleDownMult = 0.8;
+        }
+        else if (cycle.phase.includes("Top")) {
+            cycleUpMult = 0.6;
+            cycleDownMult = 1.4;
+        }
+        else if (cycle.phase.includes("Bear")) {
+            cycleUpMult = 0.5;
+            cycleDownMult = 1.5;
+        }
+    }
+    const upMove = volPct * (bull ? 1.3 : 0.8) * cycleUpMult; // expected rise
+    const downRisk = volPct * (bear ? 1.3 : 0.8) * cycleDownMult; // possible fall
     // BUY-IN: at/just below current price (a small dip entry), never above it
     let buyTarget = price * (1 - Math.min(0.03, volPct * 0.25));
     // SELL: above current price by the expected up-move
@@ -3166,6 +3375,17 @@ function MarketsPage({ Logo, showToast }) {
                             "\u20BF ",
                             analysis.cycle.phase),
                         React.createElement("div", { style: { fontSize: "0.62rem", color: "rgba(180,210,255,0.4)" } },
+                            "Day ",
+                            analysis.cycle.daysSinceLow,
+                            " of ~1,428 \u00B7 ",
+                            analysis.cycle.progressPct,
+                            "% through cycle"),
+                        React.createElement("div", { style: { fontSize: "0.62rem", color: "rgba(180,210,255,0.4)" } },
+                            "Proj. peak ",
+                            analysis.cycle.projectedHigh,
+                            " \u00B7 low ",
+                            analysis.cycle.projectedLow),
+                        React.createElement("div", { style: { fontSize: "0.62rem", color: "rgba(180,210,255,0.35)" } },
                             analysis.cycle.halfBias,
                             " \u00B7 ",
                             analysis.moon)))),
@@ -3295,6 +3515,142 @@ function Sparkline({ data, up }) {
     return (React.createElement("svg", { width: W, height: H, style: { display: "block", marginLeft: "auto" } },
         React.createElement("polyline", { points: pts, fill: "none", stroke: up ? "#30d158" : "#FF453A", strokeWidth: "1.5", strokeLinejoin: "round" })));
 }
+// ── 3D Holographic AI Core (Three.js) ─────────────────────────
+// A wireframe/holographic sphere that rotates, pulses, and reacts to the AI's
+// state (idle / listening / thinking / speaking). Loads Three.js from CDN; if it
+// isn't available it falls back to a styled CSS orb so the page never breaks.
+function HoloCore({ state, color, color2, shape }) {
+    const mountRef = useRef(null);
+    const stateRef = useRef(state);
+    stateRef.current = state;
+    useEffect(() => {
+        const THREE = (typeof window !== "undefined") && window.THREE;
+        const host = mountRef.current;
+        if (!THREE || !host)
+            return;
+        const W = 220, H = 220;
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+        camera.position.z = 3.4;
+        const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+        renderer.setSize(W, H);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        host.innerHTML = "";
+        host.appendChild(renderer.domElement);
+        const col = new THREE.Color(color || "#00E5FF");
+        const col2 = new THREE.Color(color2 || "#0072FF");
+        const group = new THREE.Group();
+        scene.add(group);
+        // Wireframe sphere (icosahedron for that faceted holographic look)
+        const geo = new THREE.IcosahedronGeometry(1, shape === "lattice" ? 1 : 2);
+        const wire = new THREE.WireframeGeometry(geo);
+        const lineMat = new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.55 });
+        const mesh = new THREE.LineSegments(wire, lineMat);
+        group.add(mesh);
+        // Inner glowing solid sphere
+        const innerGeo = new THREE.IcosahedronGeometry(0.62, 3);
+        const innerMat = new THREE.MeshBasicMaterial({ color: col2, transparent: true, opacity: 0.14, wireframe: false });
+        const inner = new THREE.Mesh(innerGeo, innerMat);
+        group.add(inner);
+        // Outer point cloud (particles forming a shell)
+        const pCount = 260;
+        const pGeo = new THREE.BufferGeometry();
+        const positions = new Float32Array(pCount * 3);
+        for (let i = 0; i < pCount; i++) {
+            const r = 1.25 + Math.random() * 0.35;
+            const th = Math.random() * Math.PI * 2, ph = Math.acos(2 * Math.random() - 1);
+            positions[i * 3] = r * Math.sin(ph) * Math.cos(th);
+            positions[i * 3 + 1] = r * Math.sin(ph) * Math.sin(th);
+            positions[i * 3 + 2] = r * Math.cos(ph);
+        }
+        pGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+        const pMat = new THREE.PointsMaterial({ color: col, size: 0.03, transparent: true, opacity: 0.7 });
+        const points = new THREE.Points(pGeo, pMat);
+        group.add(points);
+        // Equatorial ring
+        const ringGeo = new THREE.RingGeometry(1.4, 1.44, 64);
+        const ringMat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = Math.PI / 2.2;
+        group.add(ring);
+        const basePos = positions.slice();
+        let raf, t = 0;
+        const animate = () => {
+            raf = requestAnimationFrame(animate);
+            t += 0.016;
+            const st = stateRef.current;
+            // State-driven behavior
+            let spin = 0.004, pulse = 1, jitter = 0.0;
+            if (st === "listening") {
+                spin = 0.012;
+                pulse = 1 + Math.sin(t * 6) * 0.06;
+                jitter = 0.02;
+                lineMat.color.set("#ff5a4d");
+                pMat.color.set("#ff7a5a");
+            }
+            else if (st === "thinking") {
+                spin = 0.03;
+                pulse = 1 + Math.sin(t * 10) * 0.05;
+                jitter = 0.04;
+                lineMat.color.copy(col);
+                pMat.color.copy(col);
+            }
+            else if (st === "speaking") {
+                spin = 0.02;
+                pulse = 1 + Math.abs(Math.sin(t * 12)) * 0.12;
+                jitter = 0.05;
+                lineMat.color.copy(col);
+                pMat.color.copy(col);
+            }
+            else {
+                spin = 0.004;
+                pulse = 1 + Math.sin(t * 1.5) * 0.03;
+                jitter = 0.008;
+                lineMat.color.copy(col);
+                pMat.color.copy(col);
+            }
+            group.rotation.y += spin;
+            group.rotation.x = Math.sin(t * 0.3) * 0.2;
+            group.scale.setScalar(pulse);
+            inner.material.opacity = 0.12 + Math.abs(Math.sin(t * 2)) * 0.1;
+            ring.rotation.z += spin * 1.5;
+            // Particle shimmer
+            const pa = points.geometry.attributes.position.array;
+            for (let i = 0; i < pCount; i++) {
+                const f = 1 + Math.sin(t * 3 + i) * jitter;
+                pa[i * 3] = basePos[i * 3] * f;
+                pa[i * 3 + 1] = basePos[i * 3 + 1] * f;
+                pa[i * 3 + 2] = basePos[i * 3 + 2] * f;
+            }
+            points.geometry.attributes.position.needsUpdate = true;
+            renderer.render(scene, camera);
+        };
+        animate();
+        return () => {
+            cancelAnimationFrame(raf);
+            renderer.dispose();
+            geo.dispose();
+            wire.dispose();
+            innerGeo.dispose();
+            pGeo.dispose();
+            ringGeo.dispose();
+            if (host)
+                host.innerHTML = "";
+        };
+    }, [color, color2, shape]);
+    const THREE_OK = (typeof window !== "undefined") && window.THREE;
+    return (React.createElement("div", { style: { position: "relative", width: 220, height: 220, margin: "0 auto 0.5rem" } },
+        React.createElement("div", { ref: mountRef, style: { width: 220, height: 220 } }),
+        !THREE_OK && (React.createElement("div", { className: `core ${state}`, style: { position: "absolute", inset: "35px" } },
+            React.createElement("div", { className: "core-halo" }),
+            React.createElement("div", { className: "core-ring r1" }),
+            React.createElement("div", { className: "core-ring r2" }),
+            React.createElement("div", { className: "core-ring r3" }),
+            React.createElement("div", { className: "core-ring r4" }),
+            React.createElement("div", { className: "core-orb" }))),
+        React.createElement("div", { style: { position: "absolute", inset: 0, borderRadius: "50%", pointerEvents: "none",
+                background: `radial-gradient(circle, ${color}22 0%, transparent 62%)`, zIndex: -1 } })));
+}
 // ── Main App ──────────────────────────────────────────────────
 function QuantumAI() {
     const [walletModal, setWalletModal] = useState(false);
@@ -3302,6 +3658,22 @@ function QuantumAI() {
     const [availWallets, setAvailWallets] = useState([]); // detected CIP-30 wallets
     const [walletConnecting, setWalletConnecting] = useState(null); // key being connected
     const [page, setPage] = useState("home"); // "home" | "markets" | "chat" | "downloads" | "cloud"
+    // When the page changes (any nav link, pill, or footer link), jump the viewport
+    // to the top of the new page's content — fixes mobile staying scrolled midway.
+    useEffect(() => {
+        if (typeof window === "undefined")
+            return;
+        // rAF ensures the new page has rendered before we scroll.
+        requestAnimationFrame(() => {
+            const anchor = document.getElementById("page-top");
+            if (anchor && anchor.scrollIntoView) {
+                anchor.scrollIntoView({ behavior: "auto", block: "start" });
+            }
+            else {
+                window.scrollTo(0, 0);
+            }
+        });
+    }, [page]);
     // ── Cloud Connect (web) state ──
     const [cloudServer, setCloudServer] = useState("");
     const [cloudUser, setCloudUser] = useState("");
@@ -3311,6 +3683,11 @@ function QuantumAI() {
     const [cloudErr, setCloudErr] = useState("");
     const [cloudBusy, setCloudBusy] = useState(false);
     const [cloudFolder, setCloudFolder] = useState("My Cloud");
+    // ── Quantum Vault waitlist ──
+    const [wlEmail, setWlEmail] = useState("");
+    const [wlChains, setWlChains] = useState([]);
+    const [wlStatus, setWlStatus] = useState(""); // "", "sending", "done", "error"
+    const [wlMsg, setWlMsg] = useState("");
     // ── Live DEX price state ──
     const [priceADA, setPriceADA] = useState(0);
     const [priceUSD, setPriceUSD] = useState(0);
@@ -3335,17 +3712,62 @@ function QuantumAI() {
     const [keyBackedUp, setKeyBackedUp] = useState(false);
     const fileRef = useRef(null);
     const decFileRef = useRef(null);
-    const [persona, setPersona] = useState("jarvis"); // "jarvis" | "friday"
+    const [persona] = useState("axis"); // single original entity
     const [voiceOn, setVoiceOn] = useState(false); // text-to-speech toggle
     const [listening, setListening] = useState(false); // mic active
     const recognitionRef = useRef(null);
     // ── Per-user personalization (saved to this browser) ──
     const [showSettings, setShowSettings] = useState(false);
+    // ── External data sources (curated toggles + on-device custom) ──
+    const [showSources, setShowSources] = useState(false);
+    // ── Chat download + QAI encryption ──
+    const [showDownload, setShowDownload] = useState(false);
+    const [encPass, setEncPass] = useState("");
+    const [encMode, setEncMode] = useState("encrypted"); // "encrypted" | "plain"
+    const [encBusy, setEncBusy] = useState(false);
+    const [dataSources, setDataSources] = useState(() => {
+        try {
+            const raw = localStorage.getItem("qai_axis_sources");
+            return raw ? JSON.parse(raw) : { curated: {}, custom: [] };
+        }
+        catch {
+            return { curated: {}, custom: [] };
+        }
+    });
+    const saveSources = (next) => {
+        setDataSources(next);
+        try {
+            localStorage.setItem("qai_axis_sources", JSON.stringify(next));
+        }
+        catch { }
+    };
+    // ── AXIS account (optional sign-in) ──
+    const [showSignIn, setShowSignIn] = useState(false);
+    const [authUser, setAuthUser] = useState(() => {
+        try {
+            const raw = localStorage.getItem("qai_axis_user");
+            return raw ? JSON.parse(raw) : null;
+        }
+        catch {
+            return null;
+        }
+    });
+    const [authAvailable, setAuthAvailable] = useState(false);
+    // Check whether the backend has accounts configured
+    useEffect(() => {
+        fetch("/api/auth").then(r => r.headers.get("content-type")?.includes("json") ? r.json() : null)
+            .then(d => { if (d && d.configured)
+            setAuthAvailable(true); }).catch(() => { });
+    }, []);
+    const signOut = () => { setAuthUser(null); try {
+        localStorage.removeItem("qai_axis_user");
+    }
+    catch { } };
     const [availVoices, setAvailVoices] = useState([]);
     const [custom, setCustom] = useState(() => {
-        const def = { jarvis: {}, friday: {} };
+        const def = { axis: {} };
         try {
-            const raw = (typeof localStorage !== "undefined") && localStorage.getItem("qai_persona_custom");
+            const raw = (typeof localStorage !== "undefined") && localStorage.getItem("qai_axis_custom");
             return raw ? { ...def, ...JSON.parse(raw) } : def;
         }
         catch {
@@ -3356,21 +3778,27 @@ function QuantumAI() {
         setCustom(next);
         try {
             if (typeof localStorage !== "undefined")
-                localStorage.setItem("qai_persona_custom", JSON.stringify(next));
+                localStorage.setItem("qai_axis_custom", JSON.stringify(next));
         }
         catch { }
     };
-    // Effective persona config = base persona overlaid with the user's customizations
+    // Effective config = base entity overlaid with the user's customizations
     const pcfg = (p = persona) => {
-        const base = PERSONAS[p];
+        const base = PERSONAS[p] || PERSONAS.axis;
         const c = custom[p] || {};
+        const theme = CORE_THEMES[c.theme] || CORE_THEMES.quantum;
         return {
             ...base,
             name: c.name || base.name,
             displayName: c.name || base.name,
             voiceURI: c.voiceURI || null,
-            rate: c.rate != null ? c.rate : (p === "friday" ? 1.06 : 0.97),
-            pitch: c.pitch != null ? c.pitch : (base.gender === "male" ? 0.75 : 1.15),
+            rate: c.rate != null ? c.rate : 1.0,
+            pitch: c.pitch != null ? c.pitch : 1.0,
+            theme: c.theme || "quantum",
+            shape: c.shape || "orb",
+            themeCfg: theme,
+            ambient: c.ambient !== false, // starfield/particles on by default
+            sfx: c.sfx === true, // UI sound effects off by default
             sys: c.personality
                 ? `${base.sys}\n\nAdditional user-defined personality and instructions: ${c.personality}`
                 : base.sys,
@@ -3384,9 +3812,18 @@ function QuantumAI() {
             window.speechSynthesis.onvoiceschanged = load;
         }
     }, []);
-    const [chatMsgs, setChatMsgs] = useState([
-        { role: "bot", text: PERSONAS.jarvis.greeting }
-    ]);
+    const [chatMsgs, setChatMsgs] = useState(() => {
+        try {
+            const raw = (typeof localStorage !== "undefined") && localStorage.getItem("qai_axis_history");
+            if (raw) {
+                const arr = JSON.parse(raw);
+                if (Array.isArray(arr) && arr.length)
+                    return arr;
+            }
+        }
+        catch { }
+        return [{ role: "bot", text: PERSONAS.axis.greeting }];
+    });
     const [chatInput, setChatInput] = useState("");
     const [chatLoading, setChatLoading] = useState(false);
     const [speaking, setSpeaking] = useState(false); // TTS actively talking
@@ -3405,7 +3842,7 @@ function QuantumAI() {
                 u.lang = v.lang;
             }
             else {
-                u.lang = PERSONAS[p].voice;
+                u.lang = (PERSONAS[p] || PERSONAS.axis).voice;
             }
             u.rate = c.rate;
             u.pitch = c.pitch;
@@ -3426,18 +3863,152 @@ function QuantumAI() {
         thinking: "⟳ Thinking",
         speaking: "◆ Speaking",
     }[coreState];
-    // Switch persona — reset greeting to the new assistant
-    const switchPersona = (p) => {
-        if (p === persona)
+    // ── UI sound effects (Web Audio, no files) ──
+    const audioCtxRef = useRef(null);
+    const sfxTone = (freq = 660, dur = 0.12, type = "sine", vol = 0.06) => {
+        if (!pcfg().sfx)
             return;
-        setPersona(p);
-        const c = pcfg(p);
-        const greet = (c.name !== PERSONAS[p].name)
-            ? PERSONAS[p].greeting.replace(PERSONAS[p].name, c.name)
-            : PERSONAS[p].greeting;
+        try {
+            if (!audioCtxRef.current)
+                audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+            const ctx = audioCtxRef.current;
+            const osc = ctx.createOscillator(), gain = ctx.createGain();
+            osc.type = type;
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(vol, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + dur);
+        }
+        catch { }
+    };
+    const sfxPing = () => { sfxTone(880, 0.10, "triangle"); setTimeout(() => sfxTone(1180, 0.08, "sine"), 70); };
+    const sfxSend = () => sfxTone(520, 0.08, "sine");
+    // Reset the conversation to a fresh greeting (uses the user's custom name)
+    const resetChat = () => {
+        const c = pcfg();
+        const greet = (c.displayName !== PERSONAS.axis.name)
+            ? PERSONAS.axis.greeting.replace(/AXIS/g, c.displayName)
+            : PERSONAS.axis.greeting;
         setChatMsgs([{ role: "bot", text: greet }]);
+        try {
+            if (typeof localStorage !== "undefined")
+                localStorage.removeItem("qai_axis_history");
+        }
+        catch { }
         if (voiceOn)
-            speakAs(greet, p);
+            speakAs(greet);
+    };
+    // Persist conversation to this device so users pick up where they left off
+    useEffect(() => {
+        try {
+            if (typeof localStorage !== "undefined")
+                localStorage.setItem("qai_axis_history", JSON.stringify(chatMsgs.slice(-100)));
+        }
+        catch { }
+    }, [chatMsgs]);
+    // Download the conversation as a text file
+    const buildChatPayload = () => {
+        const name = pcfg().displayName;
+        const readable = chatMsgs.map(m => `${m.role === "bot" ? name : "You"}: ${m.text}`).join("\n\n");
+        return {
+            _format: "quantumai-axis-chat", _version: 1,
+            exported: new Date().toISOString(), assistant: name,
+            transcript: readable, messages: chatMsgs,
+        };
+    };
+    const openDownload = () => { setEncPass(""); setShowDownload(true); };
+    const doDownload = async () => {
+        const name = pcfg().displayName;
+        const payload = buildChatPayload();
+        const jsonStr = JSON.stringify(payload, null, 2);
+        const dl = (blob, ext) => {
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = `quantumai-${name.toLowerCase()}-chat-${new Date().toISOString().slice(0, 10)}.${ext}`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+        };
+        if (encMode === "plain") {
+            dl(new Blob([jsonStr], { type: "application/json" }), "json");
+            setShowDownload(false);
+            showToast("Chat downloaded (unencrypted)");
+            return;
+        }
+        // Encrypted path — produces a Vault-compatible .qai file
+        if (!encPass || encPass.length < 6) {
+            showToast("Choose a password (at least 6 characters)");
+            return;
+        }
+        setEncBusy(true);
+        try {
+            const blob = await qaiEncryptText(jsonStr, encPass);
+            dl(blob, "qai");
+            setShowDownload(false);
+            showToast("Chat encrypted — keep your password safe");
+        }
+        catch {
+            showToast("Encryption failed — please try again");
+        }
+        finally {
+            setEncBusy(false);
+            setEncPass("");
+        }
+    };
+    // Kept for the header button — now opens the download options modal.
+    const downloadChat = () => openDownload();
+    const uploadInputRef = useRef(null);
+    const restoreFromText = (raw) => {
+        try {
+            const data = JSON.parse(raw);
+            let msgs = null;
+            if (data && data._format === "quantumai-axis-chat" && Array.isArray(data.messages))
+                msgs = data.messages;
+            else if (Array.isArray(data))
+                msgs = data;
+            else if (Array.isArray(data.messages))
+                msgs = data.messages;
+            if (!msgs || !msgs.length) {
+                showToast("That file doesn't look like a saved AXIS chat");
+                return;
+            }
+            const clean = msgs.filter(m => m && typeof m.text === "string")
+                .map(m => ({ role: m.role === "bot" ? "bot" : (m.role === "user" ? "user" : "bot"), text: m.text }));
+            if (!clean.length) {
+                showToast("No readable messages found");
+                return;
+            }
+            setChatMsgs(clean);
+            showToast(`Restored ${clean.length} messages — continue where you left off`);
+        }
+        catch {
+            showToast("Couldn't read that file");
+        }
+    };
+    const uploadChat = (file) => {
+        if (!file)
+            return;
+        // Encrypted .qai files are binary (Vault format). Detect by extension.
+        if (file.name.toLowerCase().endsWith(".qai")) {
+            const pw = window.prompt("This chat is encrypted. Enter its password to unlock:");
+            if (!pw)
+                return;
+            qaiDecryptToText(file, pw)
+                .then(text => restoreFromText(text))
+                .catch(err => {
+                showToast(String(err.message).includes("WRONG_PASSWORD")
+                    ? "Wrong password" : "Couldn't decrypt that file");
+            });
+            return;
+        }
+        // Plain JSON
+        const reader = new FileReader();
+        reader.onload = (e) => restoreFromText(e.target.result);
+        reader.readAsText(file);
     };
     // AI predictions from live price
     const buyTarget = priceADA > 0 ? (priceADA * 0.88).toFixed(6) : "—";
@@ -3673,20 +4244,65 @@ in a safe. Never share it with anyone.
         if (!text || chatLoading)
             return;
         setChatInput("");
+        sfxSend();
         const next = { role: "user", text };
         setChatMsgs(m => [...m, next]);
         setChatLoading(true);
         try {
             const hist = [...chatMsgs, next].map(m => ({ role: m.role === "bot" ? "assistant" : "user", content: m.text }));
-            const reply = await callClaude(hist, persona, { sys: pcfg(persona).sys });
-            setChatMsgs(m => [...m, { role: "bot", text: reply }]);
+            // ── Pull context from the user's enabled data sources (in-browser) ──
+            let sourceContext = "";
+            try {
+                const parts = [];
+                // Curated connectors the user enabled
+                for (const [id, cfg] of Object.entries(DATA_CONNECTORS)) {
+                    const on = dataSources.curated?.[id];
+                    if (!on || !on.enabled)
+                        continue;
+                    const url = cfg.build(text.toLowerCase().split(/\s+/).slice(-1)[0]);
+                    const ctx = await fetchSourceContext(url, on.key);
+                    if (ctx)
+                        parts.push(`[${cfg.label}] ${ctx}`);
+                }
+                // On-device custom sources
+                for (const s of (dataSources.custom || [])) {
+                    if (!s.enabled || !s.url)
+                        continue;
+                    const ctx = await fetchSourceContext(s.url, s.key);
+                    if (ctx)
+                        parts.push(`[${s.name || "Custom source"}] ${ctx}`);
+                }
+                if (parts.length) {
+                    sourceContext = "\n\nADDITIONAL LIVE CONTEXT from the user's connected data sources "
+                        + "(use if relevant; note it comes from user-configured sources):\n" + parts.join("\n\n");
+                }
+            }
+            catch { /* sources are best-effort */ }
+            const sysWithSources = pcfg(persona).sys + sourceContext;
+            const reply = await callClaude(hist, persona, { sys: sysWithSources });
+            sfxPing();
+            setChatLoading(false);
+            // Speak the full reply immediately (drives the core's speaking state + waveform)
             if (voiceOn)
                 speakAs(reply, persona);
+            // Stream the text in, word by word, so it "flows in"
+            const words = reply.split(/(\s+)/);
+            let acc = "";
+            setChatMsgs(m => [...m, { role: "bot", text: "", streaming: true }]);
+            for (let i = 0; i < words.length; i++) {
+                acc += words[i];
+                const shown = acc;
+                setChatMsgs(m => { const copy = m.slice(); copy[copy.length - 1] = { role: "bot", text: shown, streaming: i < words.length - 1 }; return copy; });
+                // small delay per token; skip delay for whitespace chunks
+                if (words[i].trim())
+                    await new Promise(r => setTimeout(r, 18));
+            }
+            setChatMsgs(m => { const copy = m.slice(); copy[copy.length - 1] = { role: "bot", text: acc }; return copy; });
         }
         catch {
+            setChatLoading(false);
             setChatMsgs(m => [...m, { role: "bot", text: "Connection error — please try again." }]);
         }
-        setChatLoading(false);
     };
     // ── Mic: Web Speech API speech-to-text ──
     const toggleMic = () => {
@@ -3701,7 +4317,9 @@ in a safe. Never share it with anyone.
             return;
         }
         const rec = new SR();
-        rec.lang = persona === "friday" ? "en-IE" : "en-GB";
+        const cv = pcfg();
+        const vv = pickVoice(persona, cv.voiceURI);
+        rec.lang = (vv && vv.lang) || "en-US";
         rec.interimResults = true;
         rec.continuous = false;
         let finalText = "";
@@ -3884,6 +4502,50 @@ in a safe. Never share it with anyone.
     const cloudBtnStyle = { width: "100%", padding: "0.95rem", borderRadius: 12, fontSize: "0.95rem", fontWeight: 700, cursor: "pointer", border: "none", color: "#fff", background: "linear-gradient(135deg,#0072FF,#00C6FF)", boxShadow: "0 6px 18px rgba(0,114,255,0.3)", fontFamily: "inherit" };
     const cloudSmBtn = { padding: "0.5rem 0.7rem", borderRadius: 9, fontSize: "0.8rem", fontWeight: 700, cursor: "pointer", border: "0.5px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.08)", color: "#fff", marginLeft: "0.4rem", fontFamily: "inherit" };
     const cloudGhostBtn = { flex: 1, padding: "0.7rem", borderRadius: 11, fontSize: "0.85rem", fontWeight: 700, cursor: "pointer", border: "0.5px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.06)", color: "#fff", fontFamily: "inherit" };
+    // ── Quantum Vault waitlist submit ──
+    const submitWaitlist = async () => {
+        const email = wlEmail.trim();
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+            setWlStatus("error");
+            setWlMsg("Please enter a valid email address.");
+            return;
+        }
+        setWlStatus("sending");
+        setWlMsg("");
+        const payload = {
+            email,
+            chains: wlChains,
+            walletAddr: wallet?.addr || null,
+            qaiBalance: wallet?.qai || 0,
+            ts: new Date().toISOString(),
+        };
+        try {
+            const r = await fetch("/api/waitlist", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+            const ct = r.headers.get("content-type") || "";
+            if (!ct.includes("application/json")) {
+                // Backend not deployed — still acknowledge locally so the UX works
+                setWlStatus("done");
+                setWlMsg("You're on the list! (We'll be in touch as the beta opens.)");
+                return;
+            }
+            const d = await r.json();
+            if (d.ok) {
+                setWlStatus("done");
+                setWlMsg("You're on the list! We'll email you when your vault invite is ready.");
+            }
+            else {
+                setWlStatus("error");
+                setWlMsg(d.error || "Something went wrong. Please try again.");
+            }
+        }
+        catch {
+            setWlStatus("done");
+            setWlMsg("You're on the list! (We'll be in touch as the beta opens.)");
+        }
+    };
     return (React.createElement(React.Fragment, null,
         React.createElement("style", null, css),
         React.createElement("nav", { className: "nav" },
@@ -3893,9 +4555,10 @@ in a safe. Never share it with anyone.
             React.createElement("div", { className: "nav-links" },
                 page === "home" && ["price", "token"].map(s => (React.createElement("button", { key: s, className: "nav-pill", onClick: () => scrollTo(s) }, s.charAt(0).toUpperCase() + s.slice(1)))),
                 React.createElement("button", { className: "nav-pill", style: page === "markets" ? { color: "#fff", background: "rgba(255,255,255,0.08)" } : {}, onClick: () => setPage(p => p === "markets" ? "home" : "markets") }, page === "markets" ? "← Home" : "Markets"),
-                React.createElement("button", { className: "nav-pill", style: page === "chat" ? { color: "#fff", background: "rgba(255,255,255,0.08)" } : {}, onClick: () => setPage(p => p === "chat" ? "home" : "chat") }, page === "chat" ? "← Home" : "AI Chat"),
+                React.createElement("button", { className: "nav-pill", style: page === "chat" ? { color: "#fff", background: "rgba(255,255,255,0.08)" } : {}, onClick: () => setPage(p => p === "chat" ? "home" : "chat") }, page === "chat" ? "← Home" : "AXIS AI"),
                 React.createElement("button", { className: "nav-pill", style: page === "downloads" ? { color: "#fff", background: "rgba(255,255,255,0.08)" } : {}, onClick: () => setPage(p => p === "downloads" ? "home" : "downloads") }, page === "downloads" ? "← Home" : "Downloads"),
-                React.createElement("button", { className: "nav-pill", style: page === "cloud" ? { color: "#fff", background: "rgba(255,255,255,0.08)" } : {}, onClick: () => setPage(p => p === "cloud" ? "home" : "cloud") }, page === "cloud" ? "← Home" : "Cloud")),
+                React.createElement("button", { className: "nav-pill", style: page === "cloud" ? { color: "#fff", background: "rgba(255,255,255,0.08)" } : {}, onClick: () => setPage(p => p === "cloud" ? "home" : "cloud") }, page === "cloud" ? "← Home" : "Cloud"),
+                React.createElement("button", { className: "nav-pill", style: page === "vault" ? { color: "#fff", background: "rgba(0,198,255,0.15)" } : { color: "var(--gold)" }, onClick: () => setPage(p => p === "vault" ? "home" : "vault") }, page === "vault" ? "← Home" : "Quantum Vault")),
             wallet
                 ? React.createElement("button", { className: "btn-wallet connected", onClick: disconnectWallet, title: `${wallet.addr ? shortAddr(wallet.addr) : wallet.name} · Click to disconnect` },
                     React.createElement("span", { className: "wallet-dot" }),
@@ -3905,6 +4568,7 @@ in a safe. Never share it with anyone.
                     wallet.qai.toLocaleString(),
                     " QAI")
                 : React.createElement("button", { className: "btn-wallet", onClick: () => setWalletModal(true) }, "Connect Wallet")),
+        React.createElement("div", { id: "page-top", style: { position: "absolute", top: 0, left: 0, height: 1, width: 1 }, "aria-hidden": "true" }),
         React.createElement("section", { id: "home", className: "hero" },
             React.createElement("div", { className: "hero-glow-1" }),
             React.createElement("div", { className: "hero-glow-2" }),
@@ -3982,127 +4646,314 @@ in a safe. Never share it with anyone.
                     !it.dir && React.createElement(React.Fragment, null,
                         React.createElement("button", { onClick: () => cloudDownload(it.raw, it.name), style: cloudSmBtn }, "\u2B07"),
                         React.createElement("button", { onClick: () => cloudDelete(it.raw, it.name), style: { ...cloudSmBtn, background: "rgba(255,80,80,0.12)" } }, "\uD83D\uDDD1")))))))))),
-        page === "chat" && (React.createElement("div", { className: `hud${persona === "friday" ? " friday" : ""}` },
-            React.createElement("div", { className: "hud-stars" }),
-            React.createElement("div", { className: "hud-frame" }),
-            React.createElement("div", { className: "hud-corner" }),
-            React.createElement("div", { className: "hud-inner" },
-                React.createElement("div", { style: { textAlign: "center" } },
-                    React.createElement("div", { className: `core ${coreState}` },
-                        React.createElement("div", { className: "core-halo" }),
-                        React.createElement("div", { className: "core-ring r1" }),
-                        React.createElement("div", { className: "core-ring r2" }),
-                        React.createElement("div", { className: "core-ring r3" }),
-                        React.createElement("div", { className: "core-ring r4" }),
-                        React.createElement("div", { className: "core-orb" })),
-                    React.createElement("div", { className: "hud-eyebrow" }, "QuantumAI \u00B7 Onboard Intelligence"),
-                    React.createElement("div", { className: "hud-title" }, pcfg().displayName),
-                    React.createElement("div", { style: { fontFamily: "'SF Mono',monospace", fontSize: "0.66rem", letterSpacing: "0.14em", color: "var(--hud-dim)" } }, PERSONAS[persona].tagline),
-                    React.createElement("div", { className: "core-status" },
-                        (coreState === "speaking" || coreState === "listening") && (React.createElement("span", { className: "wave", style: { marginRight: "0.6rem" } },
-                            React.createElement("i", null),
-                            React.createElement("i", null),
-                            React.createElement("i", null),
-                            React.createElement("i", null),
-                            React.createElement("i", null),
-                            React.createElement("i", null),
-                            React.createElement("i", null))),
-                        coreStatusText,
-                        (coreState === "thinking" || coreState === "listening") && React.createElement("span", { className: "blink" }, "_")),
-                    React.createElement("button", { onClick: () => setShowSettings(true), style: { marginTop: "0.8rem", fontSize: "0.7rem", fontWeight: 700, padding: "0.4rem 1rem", borderRadius: 20, cursor: "pointer", background: "transparent", border: "1px solid var(--hud-dim)", color: "var(--hud)", letterSpacing: "0.08em" } }, "\u2699 PERSONALIZE")),
-                React.createElement("div", { className: "hud-personas" }, [
-                    { id: "jarvis", desc: "British · Male" },
-                    { id: "friday", desc: "Irish · Female" },
-                ].map(p => {
-                    const c = pcfg(p.id);
-                    const on = persona === p.id;
-                    return (React.createElement("div", { key: p.id, className: `hud-persona${on ? " on" : ""}`, onClick: () => switchPersona(p.id) },
-                        React.createElement("div", { className: "pid" }, c.displayName),
-                        React.createElement("div", { className: "pdesc" }, p.desc),
-                        React.createElement("div", { className: "ptag" }, PERSONAS[p.id].tagline),
-                        on && React.createElement("div", { className: "pstat" }, "\u25CF ACTIVE")));
+        page === "vault" && (React.createElement("div", { style: { minHeight: "100vh", padding: "calc(var(--nav-h,64px) + 2rem) 1.25rem 4rem", maxWidth: 900, margin: "0 auto" } },
+            React.createElement("div", { style: { textAlign: "center", marginBottom: "2.5rem" } },
+                React.createElement("div", { className: "dl-badge" },
+                    React.createElement("span", { style: { width: 6, height: 6, borderRadius: "50%", background: "#FFD54F", boxShadow: "0 0 6px #FFD54F", display: "inline-block" } }),
+                    "Private Beta \u00B7 Coming Soon"),
+                React.createElement("h1", { className: "dl-title", style: { fontSize: "clamp(2rem,5vw,3.4rem)", background: "linear-gradient(135deg,#00C6FF,#7B2FFF)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } }, "Quantum-Ready Vault"),
+                React.createElement("p", { className: "dl-sub", style: { maxWidth: 640, margin: "0.75rem auto 0" } }, "Keep the assets you already own \u2014 and add a post-quantum security layer on top. A QAI-gated smart-contract vault that requires a quantum-grade (ML-DSA) signature to release funds, built to migrate to native post-quantum protection as the chains support it.")),
+            React.createElement("div", { style: { background: "rgba(255,213,79,0.06)", border: "0.5px solid rgba(255,213,79,0.25)", borderRadius: 14, padding: "1rem 1.25rem", marginBottom: "2rem", fontSize: "0.8rem", color: "rgba(255,225,150,0.9)", lineHeight: 1.6 } },
+                React.createElement("strong", null, "What this is \u2014 and isn't."),
+                " The Quantum-Ready Vault adds a real post-quantum signature (ML-DSA / Dilithium) as a second factor your vault contract requires before releasing funds \u2014 strong protection against key theft and phishing, and a migration path for when EVM chains adopt post-quantum signatures natively. It is ",
+                React.createElement("strong", null, "not"),
+                " a claim that your underlying BTC/ETH/SOL become quantum-proof at the base-chain level today: those assets are still secured by each chain's native signatures until the networks themselves upgrade. We build the gateway; we won't overpromise the physics."),
+            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: "1rem", marginBottom: "2.5rem" } }, [
+                { t: "The gap today", d: "Quantum-safe chains (QRL, Mochimo, QoreChain) only protect their own native coins. You'd have to sell your BTC/ETH/SOL to use them." },
+                { t: "What people want", d: "Keep their existing multi-chain portfolio — and make it safer — without abandoning it for a niche native coin." },
+                { t: "Our approach", d: "An ERC-4337 account-abstraction vault + MPC key-splitting, gated by QAI, that layers an ML-DSA signature requirement and is architected to adopt native PQ signatures on day one of chain support." },
+            ].map((c, i) => (React.createElement("div", { key: i, style: { background: "rgba(255,255,255,0.04)", border: "0.5px solid rgba(255,255,255,0.1)", borderRadius: 14, padding: "1.25rem" } },
+                React.createElement("div", { style: { fontWeight: 700, fontSize: "0.92rem", marginBottom: "0.5rem", color: "var(--blue)" } }, c.t),
+                React.createElement("div", { style: { fontSize: "0.82rem", color: "rgba(180,210,255,0.7)", lineHeight: 1.6 } }, c.d))))),
+            React.createElement("div", { style: { textAlign: "center", marginBottom: "2.5rem", padding: "1.5rem", background: "rgba(0,198,255,0.05)", border: "0.5px solid rgba(0,198,255,0.2)", borderRadius: 16 } },
+                React.createElement("div", { style: { fontWeight: 800, fontSize: "1.1rem", marginBottom: "0.4rem" } }, "QAI is the key to the vault"),
+                React.createElement("p", { style: { fontSize: "0.84rem", color: "rgba(180,210,255,0.7)", maxWidth: 560, margin: "0 auto", lineHeight: 1.6 } },
+                    "Creating a quantum-ready vault and paying relayer gas will require holding or spending ",
+                    React.createElement("strong", null, "$QAI"),
+                    ". Early QAI holders get first access to the beta.")),
+            React.createElement("div", { style: { maxWidth: 480, margin: "0 auto", background: "rgba(255,255,255,0.04)", border: "0.5px solid rgba(255,255,255,0.1)", borderRadius: 18, padding: "1.75rem" } }, wlStatus === "done" ? (React.createElement("div", { style: { textAlign: "center", padding: "1rem 0" } },
+                React.createElement("div", { style: { fontSize: "2.5rem", marginBottom: "0.5rem" } }, "\u2713"),
+                React.createElement("div", { style: { fontWeight: 700, fontSize: "1.05rem", marginBottom: "0.5rem", color: "#30d158" } }, "You're on the list"),
+                React.createElement("p", { style: { fontSize: "0.85rem", color: "rgba(180,210,255,0.7)", lineHeight: 1.6 } }, wlMsg))) : (React.createElement(React.Fragment, null,
+                React.createElement("div", { style: { fontWeight: 700, fontSize: "1.05rem", marginBottom: "0.3rem", textAlign: "center" } }, "Join the private beta"),
+                React.createElement("p", { style: { fontSize: "0.78rem", color: "rgba(180,210,255,0.55)", textAlign: "center", marginBottom: "1.25rem" } }, "Be first to secure a quantum-ready vault when it opens."),
+                React.createElement("label", { style: cloudLabelStyle }, "Email"),
+                React.createElement("input", { type: "email", value: wlEmail, onChange: e => setWlEmail(e.target.value), placeholder: "you@example.com", autoCapitalize: "off", autoCorrect: "off", style: cloudInputStyle }),
+                React.createElement("label", { style: cloudLabelStyle }, "Which chains do you hold? (optional)"),
+                React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "1.1rem" } }, ["Bitcoin", "Ethereum", "Solana", "Cardano", "Other"].map(ch => {
+                    const on = wlChains.includes(ch);
+                    return (React.createElement("button", { key: ch, onClick: () => setWlChains(c => on ? c.filter(x => x !== ch) : [...c, ch]), style: { padding: "0.45rem 0.85rem", borderRadius: 20, fontSize: "0.78rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+                            background: on ? "rgba(0,198,255,0.15)" : "rgba(255,255,255,0.05)",
+                            border: on ? "0.5px solid rgba(0,198,255,0.4)" : "0.5px solid rgba(255,255,255,0.12)",
+                            color: on ? "var(--blue)" : "rgba(180,210,255,0.6)" } }, ch));
                 })),
-                React.createElement("div", { className: "hud-console" },
-                    React.createElement("div", { className: "hud-statusbar" },
-                        React.createElement("span", { className: "hud-led" }),
-                        React.createElement("span", { className: "nm" }, pcfg().displayName),
-                        React.createElement("span", { className: "st" }, coreState === "idle" ? "Online · Web search active" : coreStatusText.replace(/^[●◉⟳◆]\s*/, "")),
-                        (chatLoading || listening || speaking) && (React.createElement("div", { className: "hud-eq" },
-                            React.createElement("i", null),
-                            React.createElement("i", null),
-                            React.createElement("i", null),
-                            React.createElement("i", null),
-                            React.createElement("i", null))),
-                        React.createElement("button", { className: `hud-iconbtn${voiceOn ? " on" : ""}`, style: { marginLeft: (chatLoading || listening || speaking) ? "0.6rem" : "auto" }, title: voiceOn ? "Voice replies on" : "Voice replies off", onClick: () => { const v = !voiceOn; setVoiceOn(v); if (v)
-                                speakAs("Voice enabled.", persona);
-                            else {
-                                window.speechSynthesis?.cancel();
-                                setSpeaking(false);
-                            } } }, voiceOn ? "🔊" : "🔇")),
-                    React.createElement("div", { className: "hud-msgs" },
-                        chatMsgs.map((m, i) => (React.createElement("div", { key: i, className: `hud-msg ${m.role === "bot" ? "bot" : "user"}` },
-                            React.createElement("div", { className: "hud-av" }, m.role === "bot" ? pcfg().displayName[0] : "U"),
-                            React.createElement("div", { className: "hud-bubble" },
-                                m.text,
-                                m.role === "bot" && (React.createElement("button", { className: "hud-play", onClick: () => speakAs(m.text, persona), title: "Play" }, "\u25B6")))))),
-                        chatLoading && (React.createElement("div", { className: "hud-msg bot" },
-                            React.createElement("div", { className: "hud-av" }, pcfg().displayName[0]),
-                            React.createElement("div", { className: "hud-bubble" },
-                                React.createElement("div", { className: "hud-typing" },
-                                    React.createElement("i", null),
-                                    React.createElement("i", null),
-                                    React.createElement("i", null))))),
-                        React.createElement("div", { ref: chatEndRef })),
-                    React.createElement("div", { className: "hud-inputrow" },
-                        React.createElement("button", { className: `hud-mic${listening ? " live" : ""}`, onClick: toggleMic, title: listening ? "Stop listening" : "Speak" }, "\uD83C\uDFA4"),
-                        React.createElement("input", { className: "hud-input", value: chatInput, onChange: e => setChatInput(e.target.value), onKeyDown: e => e.key === "Enter" && sendChat(), placeholder: listening ? "Listening…" : `Speak or type to ${pcfg().displayName}…`, autoFocus: true }),
-                        React.createElement("button", { className: "hud-send", onClick: () => sendChat(), disabled: chatLoading || !chatInput.trim() }, "\u2191"))),
-                React.createElement("div", { className: "hud-sources" },
-                    React.createElement("span", { style: { fontSize: "0.6rem", letterSpacing: "0.12em", color: "var(--hud-dim)", alignSelf: "center" } }, "LIVE WEB SEARCH:"),
-                    ["World News", "Crypto", "Stocks", "Wikipedia", "Britannica", "Science"].map(s => (React.createElement("span", { key: s, className: "hud-source" }, s)))),
-                React.createElement("div", { className: "hud-foot" },
-                    "\uD83C\uDFA4 TAP MIC TO SPEAK \u00B7 \uD83D\uDD0A TOGGLE VOICE \u00B7 \u25B6 REPLAY \u00B7 \u2699 PERSONALIZE YOUR ASSISTANT",
-                    React.createElement("br", null),
-                    "Voice uses your browser's speech engine \u2014 best in Chrome, Edge & Safari. Your settings are saved on this device.")),
-            showSettings && (React.createElement("div", { className: "overlay", onClick: () => setShowSettings(false) },
-                React.createElement("div", { className: "modal", onClick: e => e.stopPropagation(), style: { maxWidth: 520, textAlign: "left" } },
-                    React.createElement("div", { className: "modal-title", style: { marginBottom: "0.3rem" } },
-                        "Personalize ",
-                        PERSONAS[persona].name),
-                    React.createElement("p", { className: "modal-sub", style: { marginBottom: "1.25rem" } }, "Customize this assistant's name, personality, and voice. Saved on this device."),
-                    (() => {
-                        const c = custom[persona] || {};
-                        const set = (patch) => saveCustom({ ...custom, [persona]: { ...c, ...patch } });
-                        const enVoices = availVoices.filter(v => /^en/i.test(v.lang));
-                        const voiceList = enVoices.length ? enVoices : availVoices;
-                        return (React.createElement("div", null,
-                            React.createElement("label", { style: { fontSize: "0.66rem", fontWeight: 700, letterSpacing: "0.08em", color: "rgba(180,210,255,0.5)", textTransform: "uppercase" } }, "Assistant name"),
-                            React.createElement("input", { value: c.name || "", onChange: e => set({ name: e.target.value }), placeholder: PERSONAS[persona].name, style: { width: "100%", boxSizing: "border-box", margin: "0.4rem 0 1rem", background: "rgba(255,255,255,0.05)", border: "0.5px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "0.65rem 0.85rem", color: "#fff", fontSize: "0.9rem", fontFamily: "inherit", outline: "none" } }),
-                            React.createElement("label", { style: { fontSize: "0.66rem", fontWeight: 700, letterSpacing: "0.08em", color: "rgba(180,210,255,0.5)", textTransform: "uppercase" } }, "Personality & instructions"),
-                            React.createElement("textarea", { value: c.personality || "", onChange: e => set({ personality: e.target.value }), rows: 3, placeholder: "e.g. Be concise and witty. Focus on crypto trading. Always greet me as 'Captain'.", style: { width: "100%", boxSizing: "border-box", margin: "0.4rem 0 1rem", background: "rgba(255,255,255,0.05)", border: "0.5px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "0.65rem 0.85rem", color: "#fff", fontSize: "0.85rem", fontFamily: "inherit", outline: "none", resize: "vertical" } }),
-                            React.createElement("label", { style: { fontSize: "0.66rem", fontWeight: 700, letterSpacing: "0.08em", color: "rgba(180,210,255,0.5)", textTransform: "uppercase" } }, "Voice"),
-                            React.createElement("select", { value: c.voiceURI || "", onChange: e => set({ voiceURI: e.target.value || null }), style: { width: "100%", boxSizing: "border-box", margin: "0.4rem 0 1rem", background: "rgba(20,28,40,1)", border: "0.5px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "0.65rem 0.85rem", color: "#fff", fontSize: "0.85rem", fontFamily: "inherit", outline: "none" } },
-                                React.createElement("option", { value: "" },
-                                    "Auto (",
-                                    persona === "jarvis" ? "British male" : "Irish female",
-                                    ")"),
-                                voiceList.map(v => React.createElement("option", { key: v.voiceURI, value: v.voiceURI },
-                                    v.name,
-                                    " \u2014 ",
-                                    v.lang))),
-                            React.createElement("label", { style: { fontSize: "0.66rem", fontWeight: 700, letterSpacing: "0.08em", color: "rgba(180,210,255,0.5)", textTransform: "uppercase" } },
-                                "Pitch \u2014 ",
-                                (c.pitch != null ? c.pitch : (PERSONAS[persona].gender === "male" ? 0.75 : 1.15)).toFixed(2)),
-                            React.createElement("input", { type: "range", min: "0.4", max: "1.8", step: "0.05", value: c.pitch != null ? c.pitch : (PERSONAS[persona].gender === "male" ? 0.75 : 1.15), onChange: e => set({ pitch: parseFloat(e.target.value) }), style: { width: "100%", margin: "0.4rem 0 1rem" } }),
-                            React.createElement("label", { style: { fontSize: "0.66rem", fontWeight: 700, letterSpacing: "0.08em", color: "rgba(180,210,255,0.5)", textTransform: "uppercase" } },
-                                "Speed \u2014 ",
-                                (c.rate != null ? c.rate : (persona === "friday" ? 1.06 : 0.97)).toFixed(2)),
-                            React.createElement("input", { type: "range", min: "0.6", max: "1.6", step: "0.05", value: c.rate != null ? c.rate : (persona === "friday" ? 1.06 : 0.97), onChange: e => set({ rate: parseFloat(e.target.value) }), style: { width: "100%", margin: "0.4rem 0 1.25rem" } }),
-                            React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap" } },
-                                React.createElement("button", { onClick: () => speakAs(`Hello, I'm ${pcfg().displayName}. This is how I sound.`, persona), style: { flex: 1, padding: "0.65rem", borderRadius: 10, fontWeight: 700, fontSize: "0.82rem", cursor: "pointer", background: "rgba(0,198,255,0.12)", border: "0.5px solid rgba(0,198,255,0.3)", color: "var(--blue)" } }, "\uD83D\uDD0A Test voice"),
-                                React.createElement("button", { onClick: () => saveCustom({ ...custom, [persona]: {} }), style: { padding: "0.65rem 1rem", borderRadius: 10, fontWeight: 700, fontSize: "0.82rem", cursor: "pointer", background: "rgba(255,255,255,0.05)", border: "0.5px solid rgba(255,255,255,0.12)", color: "rgba(180,210,255,0.7)" } }, "Reset"))));
-                    })(),
-                    React.createElement("button", { className: "modal-cancel", onClick: () => setShowSettings(false) }, "Done")))))),
+                wallet ? (React.createElement("div", { style: { fontSize: "0.74rem", color: "rgba(48,209,88,0.85)", marginBottom: "1rem", textAlign: "center" } },
+                    "\u2713 Wallet connected (",
+                    wallet.qai.toLocaleString(),
+                    " QAI) \u2014 you'll be tagged as an early holder.")) : (React.createElement("div", { style: { fontSize: "0.74rem", color: "rgba(180,210,255,0.5)", marginBottom: "1rem", textAlign: "center" } }, "Tip: connect your wallet (top-right) to register as an early QAI holder for priority access.")),
+                wlStatus === "error" && React.createElement("div", { style: { color: "#FF6B6B", fontSize: "0.82rem", marginBottom: "0.8rem", textAlign: "center" } }, wlMsg),
+                React.createElement("button", { onClick: submitWaitlist, disabled: wlStatus === "sending", style: cloudBtnStyle }, wlStatus === "sending" ? "Joining…" : "Join the waitlist"),
+                React.createElement("p", { style: { fontSize: "0.68rem", color: "rgba(180,210,255,0.4)", textAlign: "center", marginTop: "0.8rem", lineHeight: 1.5 } }, "No spam. We'll only email you about Quantum Vault beta access. This is a pre-launch signup \u2014 no funds are involved and nothing is deposited.")))),
+            React.createElement("div", { style: { maxWidth: 560, margin: "2.5rem auto 0" } },
+                React.createElement("div", { style: { fontWeight: 700, fontSize: "0.92rem", marginBottom: "1rem", textAlign: "center", color: "rgba(180,210,255,0.7)" } }, "Roadmap"),
+                [
+                    { p: "Phase 1", t: "Waitlist & positioning", s: "Now", done: true },
+                    { p: "Phase 2", t: "ERC-4337 vault + ML-DSA 2FA on testnet", s: "Next" },
+                    { p: "Phase 3", t: "Independent security audit", s: "Before mainnet" },
+                    { p: "Phase 4", t: "Mainnet launch, QAI-gated", s: "Post-audit" },
+                ].map((r, i) => (React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "1rem", padding: "0.8rem 1rem", background: "rgba(255,255,255,0.03)", border: "0.5px solid rgba(255,255,255,0.07)", borderRadius: 12, marginBottom: "0.6rem" } },
+                    React.createElement("div", { style: { width: 8, height: 8, borderRadius: "50%", flexShrink: 0, background: r.done ? "#30d158" : "rgba(180,210,255,0.3)", boxShadow: r.done ? "0 0 8px #30d158" : "none" } }),
+                    React.createElement("div", { style: { flex: 1 } },
+                        React.createElement("div", { style: { fontSize: "0.82rem", fontWeight: 600 } }, r.t),
+                        React.createElement("div", { style: { fontSize: "0.68rem", color: "rgba(180,210,255,0.45)" } }, r.p)),
+                    React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 700, color: r.done ? "#30d158" : "rgba(180,210,255,0.5)" } }, r.s))))))),
+        page === "chat" && (() => {
+            const uc = pcfg();
+            const T = uc.themeCfg;
+            // Inject the chosen theme into the HUD via CSS variables
+            const hudStyle = {
+                "--hud": T.accent,
+                "--hud-accent2": T.accent2,
+                "--hud-faint": T.glow,
+                "--hud-dim": T.accent + "66",
+            };
+            return (React.createElement("div", { className: "hud", style: hudStyle },
+                uc.ambient && React.createElement("div", { className: "hud-stars" }),
+                React.createElement("div", { className: "hud-frame" }),
+                React.createElement("div", { className: "hud-corner" }),
+                React.createElement("div", { className: "hud-inner" },
+                    React.createElement("div", { style: { textAlign: "center" } },
+                        React.createElement(HoloCore, { state: coreState, color: T.accent, color2: T.accent2, shape: uc.shape }),
+                        React.createElement("div", { className: "hud-eyebrow" }, "QuantumAI \u00B7 Quantum Intelligence Core"),
+                        React.createElement("div", { className: "hud-title" }, uc.displayName),
+                        React.createElement("div", { style: { fontFamily: "'SF Mono',monospace", fontSize: "0.66rem", letterSpacing: "0.14em", color: "var(--hud-dim)" } }, custom.axis?.name ? "Your QuantumAI intelligence" : PERSONAS.axis.tagline),
+                        React.createElement("div", { className: "core-status" },
+                            (coreState === "speaking" || coreState === "listening") && (React.createElement("span", { className: "wave", style: { marginRight: "0.6rem" } },
+                                React.createElement("i", null),
+                                React.createElement("i", null),
+                                React.createElement("i", null),
+                                React.createElement("i", null),
+                                React.createElement("i", null),
+                                React.createElement("i", null),
+                                React.createElement("i", null))),
+                            coreStatusText,
+                            (coreState === "thinking" || coreState === "listening") && React.createElement("span", { className: "blink" }, "_")),
+                        React.createElement("div", { style: { display: "flex", gap: "0.5rem", justifyContent: "center", marginTop: "0.9rem", flexWrap: "wrap" } },
+                            React.createElement("button", { onClick: () => setShowSettings(true), style: { fontSize: "0.7rem", fontWeight: 700, padding: "0.4rem 1rem", borderRadius: 20, cursor: "pointer", background: "transparent", border: "1px solid var(--hud-dim)", color: "var(--hud)", letterSpacing: "0.08em" } }, "\u2699 CUSTOMIZE"),
+                            React.createElement("button", { onClick: resetChat, style: { fontSize: "0.7rem", fontWeight: 700, padding: "0.4rem 1rem", borderRadius: 20, cursor: "pointer", background: "transparent", border: "1px solid var(--hud-dim)", color: "var(--hud)", letterSpacing: "0.08em" } }, "\u21BA NEW SESSION"),
+                            React.createElement("button", { onClick: downloadChat, style: { fontSize: "0.7rem", fontWeight: 700, padding: "0.4rem 1rem", borderRadius: 20, cursor: "pointer", background: "transparent", border: "1px solid var(--hud-dim)", color: "var(--hud)", letterSpacing: "0.08em" } }, "\u2B07 DOWNLOAD"),
+                            React.createElement("button", { onClick: () => uploadInputRef.current?.click(), style: { fontSize: "0.7rem", fontWeight: 700, padding: "0.4rem 1rem", borderRadius: 20, cursor: "pointer", background: "transparent", border: "1px solid var(--hud-dim)", color: "var(--hud)", letterSpacing: "0.08em" } }, "\u2B06 UPLOAD"),
+                            React.createElement("input", { ref: uploadInputRef, type: "file", accept: ".json,.qai,application/json", style: { display: "none" }, onChange: e => { uploadChat(e.target.files?.[0]); e.target.value = ""; } }),
+                            React.createElement("button", { onClick: () => authUser ? signOut() : setShowSignIn(true), style: { fontSize: "0.7rem", fontWeight: 700, padding: "0.4rem 1rem", borderRadius: 20, cursor: "pointer", background: authUser ? "rgba(48,209,88,0.12)" : "transparent", border: authUser ? "1px solid rgba(48,209,88,0.4)" : "1px solid var(--hud-dim)", color: authUser ? "#30d158" : "var(--hud)", letterSpacing: "0.08em" } }, authUser ? `● ${authUser.name || "Signed in"}` : "⛭ SIGN IN"),
+                            React.createElement("button", { onClick: () => setShowSources(true), style: { fontSize: "0.7rem", fontWeight: 700, padding: "0.4rem 1rem", borderRadius: 20, cursor: "pointer", background: "transparent", border: "1px solid var(--hud-dim)", color: "var(--hud)", letterSpacing: "0.08em" } }, "\uD83D\uDD0C DATA SOURCES"))),
+                    React.createElement("div", { className: "hud-personas", style: { justifyContent: "center" } }, Object.entries(CORE_THEMES).map(([id, t]) => {
+                        const on = uc.theme === id;
+                        return (React.createElement("button", { key: id, title: t.label, onClick: () => saveCustom({ ...custom, axis: { ...(custom.axis || {}), theme: id } }), style: { width: 34, height: 34, borderRadius: "50%", cursor: "pointer",
+                                background: `radial-gradient(circle at 40% 35%, #fff, ${t.accent} 55%, ${t.accent2} 90%)`,
+                                border: on ? `2px solid ${t.accent}` : "2px solid rgba(255,255,255,0.15)",
+                                boxShadow: on ? `0 0 14px ${t.glow}` : "none", transition: "all 0.2s" } }));
+                    })),
+                    React.createElement("div", { className: "hud-console" },
+                        React.createElement("div", { className: "hud-statusbar" },
+                            React.createElement("span", { className: "hud-led" }),
+                            React.createElement("span", { className: "nm" }, uc.displayName),
+                            React.createElement("span", { className: "st" }, coreState === "idle" ? "Online · Web search active" : coreStatusText.replace(/^[●◉⟳◆]\s*/, "")),
+                            (chatLoading || listening || speaking) && (React.createElement("div", { className: "hud-eq" },
+                                React.createElement("i", null),
+                                React.createElement("i", null),
+                                React.createElement("i", null),
+                                React.createElement("i", null),
+                                React.createElement("i", null))),
+                            React.createElement("button", { className: `hud-soundbtn${voiceOn ? " on" : ""}`, style: { marginLeft: (chatLoading || listening || speaking) ? "0.6rem" : "auto" }, title: voiceOn ? "Voice replies on" : "Voice replies off", onClick: () => { const v = !voiceOn; setVoiceOn(v); if (v)
+                                    speakAs("Voice enabled.", persona);
+                                else {
+                                    window.speechSynthesis?.cancel();
+                                    setSpeaking(false);
+                                } } },
+                                React.createElement("span", { className: "soundwave" },
+                                    React.createElement("svg", { viewBox: "0 0 28 20", width: "24", height: "18", fill: "none" },
+                                        React.createElement("path", { className: "spk", d: "M4 8 L8 8 L13 4 L13 16 L8 12 L4 12 Z" }),
+                                        voiceOn ? (React.createElement("g", { className: "waves" },
+                                            React.createElement("path", { className: "w w1", d: "M16 6 Q18.5 10 16 14" }),
+                                            React.createElement("path", { className: "w w2", d: "M19 4 Q22.5 10 19 16" }),
+                                            React.createElement("path", { className: "w w3", d: "M22 3 Q26 10 22 17" }))) : (React.createElement("path", { className: "mute", d: "M17 6 L24 14 M24 6 L17 14" })))),
+                                voiceOn && React.createElement("span", { className: "sound-led" }))),
+                        React.createElement("div", { className: "hud-msgs" },
+                            chatMsgs.map((m, i) => (React.createElement("div", { key: i, className: `hud-msg ${m.role === "bot" ? "bot" : "user"}` },
+                                React.createElement("div", { className: "hud-av" }, m.role === "bot" ? pcfg().displayName[0] : "U"),
+                                React.createElement("div", { className: "hud-bubble" },
+                                    m.text,
+                                    m.streaming && React.createElement("span", { className: "stream-cursor" }, "\u258B"),
+                                    m.role === "bot" && !m.streaming && (React.createElement("button", { className: "hud-play", onClick: () => speakAs(m.text, persona), title: "Play" }, "\u25B6")))))),
+                            chatLoading && (React.createElement("div", { className: "hud-msg bot" },
+                                React.createElement("div", { className: "hud-av" }, pcfg().displayName[0]),
+                                React.createElement("div", { className: "hud-bubble" },
+                                    React.createElement("div", { className: "hud-typing" },
+                                        React.createElement("i", null),
+                                        React.createElement("i", null),
+                                        React.createElement("i", null))))),
+                            React.createElement("div", { ref: chatEndRef })),
+                        React.createElement("div", { className: "hud-inputrow" },
+                            React.createElement("button", { className: `hud-mic${listening ? " live" : ""}`, onClick: toggleMic, title: listening ? "Stop listening" : "Speak" }, "\uD83C\uDFA4"),
+                            React.createElement("input", { className: "hud-input", value: chatInput, onChange: e => setChatInput(e.target.value), onKeyDown: e => e.key === "Enter" && sendChat(), placeholder: listening ? "Listening…" : `Speak or type to ${pcfg().displayName}…`, autoFocus: true }),
+                            React.createElement("button", { className: "hud-send", onClick: () => sendChat(), disabled: chatLoading || !chatInput.trim() }, "\u2191"))),
+                    React.createElement("div", { className: "hud-sources" },
+                        React.createElement("span", { style: { fontSize: "0.6rem", letterSpacing: "0.12em", color: "var(--hud-dim)", alignSelf: "center" } }, "LIVE WEB SEARCH:"),
+                        ["World News", "Crypto", "Stocks", "Wikipedia", "Britannica", "Science"].map(s => (React.createElement("span", { key: s, className: "hud-source" }, s)))),
+                    React.createElement("div", { className: "hud-foot" },
+                        "\uD83C\uDFA4 TAP MIC TO SPEAK \u00B7 \uD83D\uDD08 TOGGLE VOICE \u00B7 \u25B6 REPLAY \u00B7 \u2699 PERSONALIZE YOUR ASSISTANT",
+                        React.createElement("br", null),
+                        "Voice uses your browser's speech engine \u2014 best in Chrome, Edge & Safari. Your settings are saved on this device.")),
+                showSettings && (React.createElement("div", { className: "overlay", onClick: () => setShowSettings(false) },
+                    React.createElement("div", { className: "modal", onClick: e => e.stopPropagation(), style: { maxWidth: 540, textAlign: "left", maxHeight: "85vh", overflowY: "auto" } },
+                        React.createElement("div", { className: "modal-title", style: { marginBottom: "0.3rem" } }, "Build your AI"),
+                        React.createElement("p", { className: "modal-sub", style: { marginBottom: "1.25rem" } },
+                            "Shape ",
+                            pcfg().displayName,
+                            "'s identity, visual core, and voice. Saved on this device."),
+                        (() => {
+                            const c = custom.axis || {};
+                            const set = (patch) => saveCustom({ ...custom, axis: { ...c, ...patch } });
+                            const enVoices = availVoices.filter(v => /^en/i.test(v.lang));
+                            const voiceList = enVoices.length ? enVoices : availVoices;
+                            const lbl = { fontSize: "0.66rem", fontWeight: 700, letterSpacing: "0.08em", color: "rgba(180,210,255,0.5)", textTransform: "uppercase" };
+                            const inp = { width: "100%", boxSizing: "border-box", margin: "0.4rem 0 1rem", background: "rgba(255,255,255,0.05)", border: "0.5px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "0.65rem 0.85rem", color: "#fff", fontSize: "0.9rem", fontFamily: "inherit", outline: "none" };
+                            const secHdr = { fontSize: "0.7rem", fontWeight: 800, letterSpacing: "0.14em", color: "var(--blue)", textTransform: "uppercase", margin: "0.5rem 0 0.9rem", borderTop: "0.5px solid rgba(255,255,255,0.08)", paddingTop: "1rem" };
+                            return (React.createElement("div", null,
+                                React.createElement("div", { style: { ...secHdr, borderTop: "none", paddingTop: 0 } }, "Identity"),
+                                React.createElement("label", { style: lbl }, "Name"),
+                                React.createElement("input", { value: c.name || "", onChange: e => set({ name: e.target.value }), placeholder: "AXIS", style: inp }),
+                                React.createElement("label", { style: lbl }, "Personality & instructions"),
+                                React.createElement("textarea", { value: c.personality || "", onChange: e => set({ personality: e.target.value }), rows: 3, placeholder: "e.g. Be concise and witty. Focus on crypto. Call me 'Commander'. Speak like a calm mission-control operator.", style: { ...inp, fontSize: "0.85rem", resize: "vertical" } }),
+                                React.createElement("div", { style: secHdr }, "Visual Core"),
+                                React.createElement("label", { style: lbl }, "Energy signature"),
+                                React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", margin: "0.5rem 0 1rem" } }, Object.entries(CORE_THEMES).map(([id, t]) => {
+                                    const on = (c.theme || "quantum") === id;
+                                    return React.createElement("button", { key: id, onClick: () => set({ theme: id }), title: t.label, style: { display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.4rem 0.7rem", borderRadius: 20, cursor: "pointer", fontSize: "0.74rem", fontWeight: 700, fontFamily: "inherit",
+                                            background: on ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)",
+                                            border: on ? `1px solid ${t.accent}` : "0.5px solid rgba(255,255,255,0.12)", color: on ? t.accent : "rgba(180,210,255,0.6)" } },
+                                        React.createElement("span", { style: { width: 14, height: 14, borderRadius: "50%", background: `radial-gradient(circle at 40% 35%,#fff,${t.accent} 60%,${t.accent2})` } }),
+                                        t.label);
+                                })),
+                                React.createElement("label", { style: lbl }, "Core shape"),
+                                React.createElement("div", { style: { display: "flex", gap: "0.5rem", flexWrap: "wrap", margin: "0.5rem 0 1rem" } }, Object.entries(CORE_SHAPES).map(([id, label]) => {
+                                    const on = (c.shape || "orb") === id;
+                                    return React.createElement("button", { key: id, onClick: () => set({ shape: id }), style: { padding: "0.45rem 0.85rem", borderRadius: 20, cursor: "pointer", fontSize: "0.76rem", fontWeight: 700, fontFamily: "inherit",
+                                            background: on ? "rgba(0,198,255,0.15)" : "rgba(255,255,255,0.04)", border: on ? "0.5px solid rgba(0,198,255,0.4)" : "0.5px solid rgba(255,255,255,0.12)", color: on ? "var(--blue)" : "rgba(180,210,255,0.6)" } }, label);
+                                })),
+                                React.createElement("label", { style: { ...lbl, display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", textTransform: "none", fontSize: "0.82rem", color: "rgba(220,235,255,0.85)", marginBottom: "1rem" } },
+                                    React.createElement("input", { type: "checkbox", checked: c.ambient !== false, onChange: e => set({ ambient: e.target.checked }) }),
+                                    "Ambient particle field & starscape"),
+                                React.createElement("div", { style: secHdr }, "Audio"),
+                                React.createElement("label", { style: lbl }, "Voice"),
+                                React.createElement("select", { value: c.voiceURI || "", onChange: e => set({ voiceURI: e.target.value || null }), style: { ...inp, background: "rgba(20,28,40,1)", fontSize: "0.85rem" } },
+                                    React.createElement("option", { value: "" }, "Auto (system default)"),
+                                    voiceList.map(v => React.createElement("option", { key: v.voiceURI, value: v.voiceURI },
+                                        v.name,
+                                        " \u2014 ",
+                                        v.lang))),
+                                React.createElement("label", { style: lbl },
+                                    "Pitch \u2014 ",
+                                    (c.pitch != null ? c.pitch : 1.0).toFixed(2)),
+                                React.createElement("input", { type: "range", min: "0.4", max: "1.8", step: "0.05", value: c.pitch != null ? c.pitch : 1.0, onChange: e => set({ pitch: parseFloat(e.target.value) }), style: { width: "100%", margin: "0.4rem 0 1rem" } }),
+                                React.createElement("label", { style: lbl },
+                                    "Speed \u2014 ",
+                                    (c.rate != null ? c.rate : 1.0).toFixed(2)),
+                                React.createElement("input", { type: "range", min: "0.6", max: "1.6", step: "0.05", value: c.rate != null ? c.rate : 1.0, onChange: e => set({ rate: parseFloat(e.target.value) }), style: { width: "100%", margin: "0.4rem 0 1rem" } }),
+                                React.createElement("label", { style: { ...lbl, display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", textTransform: "none", fontSize: "0.82rem", color: "rgba(220,235,255,0.85)", marginBottom: "1.25rem" } },
+                                    React.createElement("input", { type: "checkbox", checked: c.sfx === true, onChange: e => set({ sfx: e.target.checked }) }),
+                                    "Interface sound effects (send / receive tones)"),
+                                React.createElement("div", { style: { display: "flex", gap: "0.6rem", flexWrap: "wrap" } },
+                                    React.createElement("button", { onClick: () => speakAs(`Core online. I'm ${pcfg().displayName}. This is how I sound.`), style: { flex: 1, padding: "0.65rem", borderRadius: 10, fontWeight: 700, fontSize: "0.82rem", cursor: "pointer", background: "rgba(0,198,255,0.12)", border: "0.5px solid rgba(0,198,255,0.3)", color: "var(--blue)" } }, "\uD83D\uDD0A Test voice"),
+                                    React.createElement("button", { onClick: () => { if (sfxPing)
+                                            sfxPing(); }, style: { padding: "0.65rem 0.9rem", borderRadius: 10, fontWeight: 700, fontSize: "0.82rem", cursor: "pointer", background: "rgba(0,198,255,0.12)", border: "0.5px solid rgba(0,198,255,0.3)", color: "var(--blue)" } }, "\u266A Test SFX"),
+                                    React.createElement("button", { onClick: () => saveCustom({ ...custom, axis: {} }), style: { padding: "0.65rem 1rem", borderRadius: 10, fontWeight: 700, fontSize: "0.82rem", cursor: "pointer", background: "rgba(255,255,255,0.05)", border: "0.5px solid rgba(255,255,255,0.12)", color: "rgba(180,210,255,0.7)" } }, "Reset all"))));
+                        })(),
+                        React.createElement("button", { className: "modal-cancel", onClick: () => setShowSettings(false) }, "Done")))),
+                showSignIn && (React.createElement("div", { className: "overlay", onClick: () => setShowSignIn(false) },
+                    React.createElement("div", { className: "modal", onClick: e => e.stopPropagation(), style: { maxWidth: 420, textAlign: "center" } },
+                        React.createElement("div", { className: "modal-title", style: { marginBottom: "0.3rem" } }, "Sign in to sync"),
+                        React.createElement("p", { className: "modal-sub", style: { marginBottom: "1.5rem" } }, "Save your conversations to your account and pick up on any device."),
+                        authAvailable ? (React.createElement(React.Fragment, null,
+                            React.createElement("button", { onClick: () => { if (window.google?.accounts) {
+                                    showToast("Google sign-in ready — configure client ID");
+                                }
+                                else {
+                                    showToast("Loading Google…");
+                                } }, style: { width: "100%", padding: "0.8rem", borderRadius: 12, fontWeight: 700, fontSize: "0.9rem", cursor: "pointer", background: "#fff", color: "#222", border: "none", marginBottom: "0.7rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.6rem" } },
+                                React.createElement("span", { style: { fontWeight: 900, color: "#4285F4" } }, "G"),
+                                " Continue with Google"),
+                            React.createElement("p", { style: { fontSize: "0.72rem", color: "rgba(180,210,255,0.5)", lineHeight: 1.5 } }, "Email sign-in coming soon."))) : (React.createElement("div", { style: { background: "rgba(255,213,79,0.06)", border: "0.5px solid rgba(255,213,79,0.25)", borderRadius: 12, padding: "1rem", fontSize: "0.82rem", color: "rgba(255,225,150,0.9)", lineHeight: 1.6, textAlign: "left" } },
+                            React.createElement("strong", null, "Accounts aren't enabled yet."),
+                            " Cross-device sign-in needs Google OAuth credentials and a database to be configured on the server. Until then, good news: ",
+                            React.createElement("strong", null, "your conversations already save automatically on this device"),
+                            ", so you'll pick up right where you left off here \u2014 and you can download them anytime with the \u2B07 button.")),
+                        React.createElement("button", { className: "modal-cancel", onClick: () => setShowSignIn(false) }, "Close")))),
+                showSources && (React.createElement("div", { className: "overlay", onClick: () => setShowSources(false) },
+                    React.createElement("div", { className: "modal", onClick: e => e.stopPropagation(), style: { maxWidth: 560, textAlign: "left", maxHeight: "85vh", overflowY: "auto" } },
+                        React.createElement("div", { className: "modal-title", style: { marginBottom: "0.3rem" } }, "Data Sources"),
+                        React.createElement("p", { className: "modal-sub", style: { marginBottom: "1rem" } },
+                            "Connect external APIs to enrich what AXIS can draw on. These run in ",
+                            React.createElement("strong", null, "your browser"),
+                            " \u2014 any keys you enter stay on this device and are never sent to our servers."),
+                        React.createElement("div", { style: { background: "rgba(0,198,255,0.06)", border: "0.5px solid rgba(0,198,255,0.2)", borderRadius: 10, padding: "0.7rem 0.9rem", fontSize: "0.74rem", color: "rgba(180,210,255,0.8)", lineHeight: 1.5, marginBottom: "1.25rem" } }, "\uD83D\uDD12 Your keys are stored only on this device (localStorage). Only add keys you're comfortable using in your own browser. AXIS pulls fresh context from enabled sources when you ask a question."),
+                        React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, letterSpacing: "0.12em", color: "var(--blue)", textTransform: "uppercase", marginBottom: "0.8rem" } }, "Curated connectors (safe, pre-vetted)"),
+                        Object.entries(DATA_CONNECTORS).map(([id, cfg]) => {
+                            const cur = dataSources.curated?.[id] || {};
+                            const set = (patch) => saveSources({ ...dataSources, curated: { ...dataSources.curated, [id]: { ...cur, ...patch } } });
+                            return (React.createElement("div", { key: id, style: { border: "0.5px solid rgba(255,255,255,0.1)", borderRadius: 12, padding: "0.85rem", marginBottom: "0.7rem", background: "rgba(255,255,255,0.02)" } },
+                                React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.6rem" } },
+                                    React.createElement("div", null,
+                                        React.createElement("div", { style: { fontWeight: 600, fontSize: "0.88rem" } }, cfg.label),
+                                        React.createElement("div", { style: { fontSize: "0.74rem", color: "rgba(180,210,255,0.55)", marginTop: "0.15rem" } }, cfg.desc)),
+                                    React.createElement("button", { onClick: () => set({ enabled: !cur.enabled }), style: { flexShrink: 0, width: 46, height: 26, borderRadius: 13, cursor: "pointer", border: "none", position: "relative", transition: "all 0.2s", background: cur.enabled ? "#30d158" : "rgba(255,255,255,0.15)" } },
+                                        React.createElement("span", { style: { position: "absolute", top: 3, left: cur.enabled ? 23 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "all 0.2s" } }))),
+                                cfg.needsKey && cur.enabled && (React.createElement("input", { value: cur.key || "", onChange: e => set({ key: e.target.value }), placeholder: "Your API key for this service", style: { width: "100%", boxSizing: "border-box", marginTop: "0.6rem", background: "rgba(255,255,255,0.05)", border: "0.5px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "0.55rem 0.75rem", color: "#fff", fontSize: "0.82rem", fontFamily: "inherit", outline: "none" } })),
+                                cur.enabled && React.createElement("div", { style: { fontSize: "0.7rem", color: "rgba(48,209,88,0.8)", marginTop: "0.5rem" } },
+                                    "\u2713 ",
+                                    cfg.hint)));
+                        }),
+                        React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, letterSpacing: "0.12em", color: "var(--blue)", textTransform: "uppercase", margin: "1.25rem 0 0.5rem" } }, "Your custom sources (advanced)"),
+                        React.createElement("p", { style: { fontSize: "0.74rem", color: "rgba(180,210,255,0.5)", lineHeight: 1.5, marginBottom: "0.8rem" } }, "Add any API that returns data your browser can read (must allow CORS). AXIS will fetch it and use the result as context."),
+                        (dataSources.custom || []).map((s, i) => {
+                            const upd = (patch) => { const c = [...dataSources.custom]; c[i] = { ...c[i], ...patch }; saveSources({ ...dataSources, custom: c }); };
+                            const del = () => { const c = dataSources.custom.filter((_, j) => j !== i); saveSources({ ...dataSources, custom: c }); };
+                            return (React.createElement("div", { key: i, style: { border: "0.5px solid rgba(255,255,255,0.1)", borderRadius: 12, padding: "0.85rem", marginBottom: "0.7rem", background: "rgba(255,255,255,0.02)" } },
+                                React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.5rem" } },
+                                    React.createElement("input", { value: s.name || "", onChange: e => upd({ name: e.target.value }), placeholder: "Source name", style: { flex: 1, background: "rgba(255,255,255,0.05)", border: "0.5px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "0.5rem 0.7rem", color: "#fff", fontSize: "0.82rem", fontFamily: "inherit", outline: "none" } }),
+                                    React.createElement("button", { onClick: () => upd({ enabled: !s.enabled }), style: { flexShrink: 0, width: 46, height: 26, borderRadius: 13, cursor: "pointer", border: "none", position: "relative", background: s.enabled ? "#30d158" : "rgba(255,255,255,0.15)" } },
+                                        React.createElement("span", { style: { position: "absolute", top: 3, left: s.enabled ? 23 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "all 0.2s" } })),
+                                    React.createElement("button", { onClick: del, style: { flexShrink: 0, background: "rgba(255,80,80,0.12)", border: "0.5px solid rgba(255,80,80,0.3)", borderRadius: 8, color: "#ff6b6b", cursor: "pointer", padding: "0.4rem 0.6rem", fontSize: "0.8rem" } }, "\uD83D\uDDD1")),
+                                React.createElement("input", { value: s.url || "", onChange: e => upd({ url: e.target.value }), placeholder: "https://api.example.com/endpoint", autoCapitalize: "off", autoCorrect: "off", style: { width: "100%", boxSizing: "border-box", marginBottom: "0.5rem", background: "rgba(255,255,255,0.05)", border: "0.5px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "0.5rem 0.7rem", color: "#fff", fontSize: "0.82rem", fontFamily: "inherit", outline: "none" } }),
+                                React.createElement("input", { value: s.key || "", onChange: e => upd({ key: e.target.value }), placeholder: "API key (optional \u2014 stays on this device)", style: { width: "100%", boxSizing: "border-box", background: "rgba(255,255,255,0.05)", border: "0.5px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "0.5rem 0.7rem", color: "#fff", fontSize: "0.82rem", fontFamily: "inherit", outline: "none" } })));
+                        }),
+                        React.createElement("button", { onClick: () => saveSources({ ...dataSources, custom: [...(dataSources.custom || []), { name: "", url: "", key: "", enabled: true }] }), style: { width: "100%", padding: "0.7rem", borderRadius: 10, fontWeight: 700, fontSize: "0.85rem", cursor: "pointer", background: "rgba(0,198,255,0.1)", border: "0.5px solid rgba(0,198,255,0.3)", color: "var(--blue)" } }, "+ Add custom source"),
+                        React.createElement("button", { className: "modal-cancel", onClick: () => setShowSources(false) }, "Done")))),
+                showDownload && (React.createElement("div", { className: "overlay", onClick: () => setShowDownload(false) },
+                    React.createElement("div", { className: "modal", onClick: e => e.stopPropagation(), style: { maxWidth: 460, textAlign: "left" } },
+                        React.createElement("div", { className: "modal-title", style: { marginBottom: "0.3rem" } }, "Download conversation"),
+                        React.createElement("p", { className: "modal-sub", style: { marginBottom: "1.1rem" } }, "Encrypt your chat with a password, or download it as plain JSON. Encryption happens in your browser \u2014 the password never leaves this device."),
+                        React.createElement("div", { style: { display: "flex", gap: "0.5rem", marginBottom: "1.1rem" } },
+                            React.createElement("button", { onClick: () => setEncMode("encrypted"), style: { flex: 1, padding: "0.7rem", borderRadius: 10, fontWeight: 700, fontSize: "0.82rem", cursor: "pointer", fontFamily: "inherit",
+                                    background: encMode === "encrypted" ? "rgba(0,198,255,0.15)" : "rgba(255,255,255,0.04)",
+                                    border: encMode === "encrypted" ? "0.5px solid var(--blue)" : "0.5px solid rgba(255,255,255,0.12)",
+                                    color: encMode === "encrypted" ? "var(--blue)" : "rgba(180,210,255,0.6)" } }, "\uD83D\uDD12 Encrypted (.qai)"),
+                            React.createElement("button", { onClick: () => setEncMode("plain"), style: { flex: 1, padding: "0.7rem", borderRadius: 10, fontWeight: 700, fontSize: "0.82rem", cursor: "pointer", fontFamily: "inherit",
+                                    background: encMode === "plain" ? "rgba(0,198,255,0.15)" : "rgba(255,255,255,0.04)",
+                                    border: encMode === "plain" ? "0.5px solid var(--blue)" : "0.5px solid rgba(255,255,255,0.12)",
+                                    color: encMode === "plain" ? "var(--blue)" : "rgba(180,210,255,0.6)" } }, "\uD83D\uDCC4 Plain (.json)")),
+                        encMode === "encrypted" && (React.createElement(React.Fragment, null,
+                            React.createElement("label", { style: { fontSize: "0.66rem", fontWeight: 700, letterSpacing: "0.08em", color: "rgba(180,210,255,0.5)", textTransform: "uppercase" } }, "Password"),
+                            React.createElement("input", { type: "password", value: encPass, onChange: e => setEncPass(e.target.value), placeholder: "Choose a password (6+ characters)", onKeyDown: e => e.key === "Enter" && doDownload(), style: { width: "100%", boxSizing: "border-box", margin: "0.4rem 0 0.5rem", background: "rgba(255,255,255,0.05)", border: "0.5px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "0.65rem 0.85rem", color: "#fff", fontSize: "0.9rem", fontFamily: "inherit", outline: "none" } }),
+                            React.createElement("div", { style: { fontSize: "0.74rem", color: "rgba(180,210,255,0.6)", lineHeight: 1.5, marginBottom: "0.5rem" } },
+                                "\uD83D\uDD10 AES-256-GCM encryption, done entirely in your browser. Saved as a ",
+                                React.createElement("strong", null, ".qai"),
+                                " file you can decrypt anytime on the QuantumAI.computer homepage."),
+                            React.createElement("div", { style: { fontSize: "0.72rem", color: "rgba(255,213,79,0.8)", lineHeight: 1.5, marginBottom: "1rem" } }, "\u26A0 There's no password recovery. If you lose this password, the file cannot be decrypted by anyone \u2014 including us. That's what makes it secure."))),
+                        React.createElement("button", { onClick: doDownload, disabled: encBusy, style: { width: "100%", padding: "0.85rem", borderRadius: 12, fontWeight: 700, fontSize: "0.9rem", cursor: "pointer", border: "none", color: "#001018", background: "linear-gradient(135deg,var(--blue),#0072FF)" } }, encBusy ? "Encrypting…" : (encMode === "encrypted" ? "🔒 Encrypt & Download .qai" : "Download .json")),
+                        React.createElement("p", { style: { fontSize: "0.7rem", color: "rgba(180,210,255,0.45)", textAlign: "center", marginTop: "0.8rem", lineHeight: 1.5 } }, "Decrypt .qai files anytime on the QuantumAI.computer homepage."),
+                        React.createElement("button", { className: "modal-cancel", onClick: () => setShowDownload(false) }, "Cancel"))))));
+        })(),
         page === "home" && (React.createElement(React.Fragment, null,
             React.createElement("section", { id: "price" },
                 React.createElement("div", { className: "section-inner" },
@@ -4369,7 +5220,8 @@ in a safe. Never share it with anyone.
                 React.createElement("a", { onClick: () => setPage("markets"), style: { cursor: "pointer" } }, "Markets"),
                 React.createElement("a", { onClick: () => setPage("downloads"), style: { cursor: "pointer" } }, "Downloads"),
                 React.createElement("a", { onClick: () => setPage("cloud"), style: { cursor: "pointer" } }, "Cloud"),
-                React.createElement("a", { onClick: () => setPage("chat"), style: { cursor: "pointer" } }, "AI Chat")),
+                React.createElement("a", { onClick: () => setPage("vault"), style: { cursor: "pointer" } }, "Quantum Vault"),
+                React.createElement("a", { onClick: () => setPage("chat"), style: { cursor: "pointer" } }, "AXIS AI")),
             React.createElement("p", { className: "footer-copy" }, "\u00A9 2025 QuantumAI \u00B7 github.com/C-QuantumAi \u00B7 quantumai.computer \u00B7 $QAI is a Cardano native token. Not financial advice. Crypto investments carry risk.")),
         walletModal && (React.createElement("div", { className: "overlay", onClick: () => setWalletModal(false) },
             React.createElement("div", { className: "modal", onClick: e => e.stopPropagation() },
@@ -4406,8 +5258,7 @@ in a safe. Never share it with anyone.
 
 (function(){
   if (typeof React === "undefined" || typeof ReactDOM === "undefined") {
-    document.getElementById("root").innerHTML =
-      '<div style="font-family:Inter,system-ui,sans-serif;color:#eaf4ff;max-width:520px;margin:18vh auto;padding:2rem;text-align:center"><h1 style="color:#00C6FF">QuantumAI</h1><p style="color:#8fb6d6;line-height:1.6">Couldn\'t load required libraries from the CDN. Check your connection and refresh.</p></div>';
+    document.getElementById("root").innerHTML = '<div style="font-family:Inter,sans-serif;color:#eaf4ff;text-align:center;margin:18vh auto;max-width:520px;padding:2rem"><h1 style="color:#00C6FF">QuantumAI</h1><p>Couldn\'t load libraries. Refresh.</p></div>';
     return;
   }
   ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(QuantumAI));
