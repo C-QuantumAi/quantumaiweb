@@ -3887,6 +3887,7 @@ function QuantumAI() {
     const [onBackup, setOnBackup] = useState(false); // true when a reply came from the Gemini fallback
     const [speaking, setSpeaking] = useState(false); // TTS actively talking
     const chatEndRef = useRef(null);
+    const chatBoxRef = useRef(null); // the scrollable .hud-msgs container
     // Speak helper that applies the user's voice customizations + tracks speaking state
     const speakAs = (text, p = persona) => {
         const c = pcfg(p);
@@ -4115,7 +4116,14 @@ function QuantumAI() {
         const interval = setInterval(refreshPrices, 60000); // refresh every 60s
         return () => clearInterval(interval);
     }, [refreshPrices]);
-    useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMsgs, chatLoading]);
+    // Keep the newest message visible by scrolling ONLY the chat container's own
+    // scrollbar. (scrollIntoView would scroll every ancestor — including the page —
+    // which made the whole window jump down on each message.)
+    useEffect(() => {
+        const box = chatBoxRef.current;
+        if (box)
+            box.scrollTop = box.scrollHeight;
+    }, [chatMsgs, chatLoading]);
     const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2800); };
     // Detect installed wallets whenever the modal opens (extensions inject async)
     const refreshWallets = useCallback(() => {
@@ -4844,7 +4852,7 @@ in a safe. Never share it with anyone.
                                             React.createElement("path", { className: "w w2", d: "M19 4 Q22.5 10 19 16" }),
                                             React.createElement("path", { className: "w w3", d: "M22 3 Q26 10 22 17" }))) : (React.createElement("path", { className: "mute", d: "M17 6 L24 14 M24 6 L17 14" })))),
                                 voiceOn && React.createElement("span", { className: "sound-led" }))),
-                        React.createElement("div", { className: "hud-msgs" },
+                        React.createElement("div", { className: "hud-msgs", ref: chatBoxRef },
                             chatMsgs.map((m, i) => (React.createElement("div", { key: i, className: `hud-msg ${m.role === "bot" ? "bot" : "user"}` },
                                 React.createElement("div", { className: "hud-av" }, m.role === "bot" ? pcfg().displayName[0] : "U"),
                                 React.createElement("div", { className: "hud-bubble" },
