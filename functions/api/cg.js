@@ -64,11 +64,67 @@ export async function onRequestGet(context) {
 
   try {
     const r = await fetch(base + path, { headers });
+    if (r.ok) {
+      const body = await r.text();
+      return new Response(body, { status: 200, headers: { ...cors, "Cache-Control": "public, max-age=15" } });
+    }
+    // CoinGecko failed (rate limit, outage). Try CoinMarketCap as a fallback
+    // for simple price lookups, if a CMC key is configured.
+    if (env.CMC_API_KEY) {
+      const cmc = await cmcPriceFallback(path, env.CMC_API_KEY, cors);
+      if (cmc) return cmc;
+    }
+    // No fallback available — return CoinGecko's original (error) response.
     const body = await r.text();
-    return new Response(body, { status: r.status, headers: { ...cors, "Cache-Control": r.ok ? "public, max-age=15" : "no-store" } });
+    return new Response(body, { status: r.status, headers: { ...cors, "Cache-Control": "no-store" } });
   } catch (err) {
+    // Network exception hitting CoinGecko — also try CMC.
+    if (env.CMC_API_KEY) {
+      try {
+        const cmc = await cmcPriceFallback(path, env.CMC_API_KEY, cors);
+        if (cmc) return cmc;
+      } catch { /* fall through */ }
+    }
     return new Response(JSON.stringify({ error: "Upstream fetch failed", detail: String(err) }), { status: 502, headers: cors });
   }
+}
+
+// Best-effort: translate a CoinGecko simple-price request into a CoinMarketCap
+// quote and return it in a CoinGecko-compatible shape so the frontend needn't
+// change. Only handles the common /simple/price?ids=...&vs_currencies=usd case.
+async function cmcPriceFallback(path, cmcKey, cors) {
+  try {
+    const q = path.split("?")[1] || "";
+    const params = new URLSearchParams(q);
+    const ids = (params.get("ids") || "").split(",").filter(Boolean);
+    if (!path.startsWith("/simple/price") || !ids.length) return null;
+
+    // CMC uses slugs; ids from CoinGecko are usually slugs too (e.g. "cardano").
+    const slugs = ids.join(",");
+    const r = await fetch(
+      "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?slug=" + encodeURIComponent(slugs) + "&convert=USD",
+      { headers: { "X-CMC_PRO_API_KEY": cmcKey, "Accept": "application/json" } }
+    );
+    if (!r.ok) return null;
+    const j = await r.json();
+    // Reshape CMC → CoinGecko simple/price format: { id: { usd, usd_24h_change } }
+    const out = {};
+    const bySlug = {};
+    for (const k in (j.data || {})) {
+      const coin = j.data[k];
+      if (coin && coin.slug) bySlug[coin.slug] = coin;
+    }
+    for (const id of ids) {
+      const coin = bySlug[id];
+      const quote = coin?.quote?.USD;
+      if (quote) out[id] = { usd: quote.price, usd_24h_change: quote.percent_change_24h };
+    }
+    if (!Object.keys(out).length) return null;
+    return new Response(JSON.stringify(out), {
+      status: 200,
+      headers: { ...cors, "Cache-Control": "public, max-age=20", "X-Data-Source": "coinmarketcap-fallback" },
+    });
+  } catch { return null; }
 }
 
 export async function onRequestOptions() {

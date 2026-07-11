@@ -772,16 +772,16 @@ async function callClaude(msgs, persona = "axis", custom = null) {
             }
             const d = await r.json();
             if (d.reply)
-                return d.reply;
+                return { reply: d.reply, fallback: !!d.fallback };
             if (d.error) {
                 if (/api[_ ]?key|not configured|ANTHROPIC/i.test(d.error))
-                    return "⚠ The AI isn't set up yet: the site owner needs to add the ANTHROPIC_API_KEY in Cloudflare → Settings → Environment variables (as a Secret), then redeploy.";
-                return `⚠ Backend error: ${d.error}${d.detail ? " — " + String(d.detail).slice(0, 160) : ""}`;
+                    return { reply: "⚠ The AI isn't set up yet: the site owner needs to add the ANTHROPIC_API_KEY in Cloudflare → Settings → Environment variables (as a Secret), then redeploy." };
+                return { reply: `⚠ Backend error: ${d.error}${d.detail ? " — " + String(d.detail).slice(0, 160) : ""}` };
             }
-            return "Apologies — I'm unable to respond right now.";
+            return { reply: "Apologies — I'm unable to respond right now." };
         }
         catch (e) {
-            return `⚠ Couldn't reach the chat backend (${String(e.message || e).slice(0, 80)}). If the site loaded fine, the /api/chat Pages Function likely isn't deployed — check that the 'functions' folder is at the site root.`;
+            return { reply: `⚠ Couldn't reach the chat backend (${String(e.message || e).slice(0, 80)}). If the site loaded fine, the /api/chat Pages Function likely isn't deployed — check that the 'functions' folder is at the site root.` };
         }
     }
     // Preview fallback (Claude artifact / local): call Anthropic directly (no web search).
@@ -792,10 +792,10 @@ async function callClaude(msgs, persona = "axis", custom = null) {
             body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1000, system: sys, messages: msgs }),
         });
         const d = await r.json();
-        return d.content?.map(b => b.text || "").join("") || "Apologies — I'm unable to respond right now.";
+        return { reply: d.content?.map(b => b.text || "").join("") || "Apologies — I'm unable to respond right now." };
     }
     catch {
-        return "Connection error — please try again in a moment.";
+        return { reply: "Connection error — please try again in a moment." };
     }
 }
 // Browser Text-to-Speech for Jarvis/Friday voices
@@ -2827,15 +2827,72 @@ function analyzeMarket(candles, currentPrice) {
     }
     const upMove = volPct * (bull ? 1.3 : 0.8) * cycleUpMult; // expected rise
     const downRisk = volPct * (bear ? 1.3 : 0.8) * cycleDownMult; // possible fall
+    // A SWING target must be a realistic, reachable level — not a full cycle
+    // projection. The cycle bias already shapes the signal/score above; here we
+    // only let it gently tilt the target, then hard-cap the move so BTC (and any
+    // high-priced asset) can't show a sell 30–50% away. Swings live in ~3–15%.
+    const swingUp = Math.max(0.03, Math.min(0.15, upMove));
+    const swingDown = Math.max(0.02, Math.min(0.15, downRisk));
+    // ── Fibonacci levels from the actual recent swing (real support/resistance) ──
+    // Retracements measure pullbacks within the swingLow→swingHigh leg; extensions
+    // project beyond it. We use these as magnets: pull the buy toward Fib support
+    // below price, and the sell toward the nearest Fib resistance/extension above.
+    const fib = {
+        level_0: swingLow,
+        level_236: swingLow + swingRange * 0.236,
+        level_382: swingLow + swingRange * 0.382,
+        level_500: swingLow + swingRange * 0.5,
+        level_618: swingLow + swingRange * 0.618, // "golden" retracement
+        level_786: swingLow + swingRange * 0.786,
+        level_1000: swingHigh,
+        ext_1272: swingHigh + swingRange * 0.272, // common profit-taking extension
+        ext_1618: swingHigh + swingRange * 0.618, // golden extension
+    };
+    const fibLevels = Object.values(fib).sort((a, b) => a - b);
+    // Which Fib level is price sitting closest to, and how close (as % of price)?
+    let nearestFib = null, nearestFibDist = Infinity, nearestFibName = null;
+    for (const [name, lvl] of Object.entries(fib)) {
+        const d = Math.abs(price - lvl) / price;
+        if (d < nearestFibDist) {
+            nearestFibDist = d;
+            nearestFib = lvl;
+            nearestFibName = name;
+        }
+    }
+    // Confluence signal: price holding the golden 0.618 or 0.5 retracement is a
+    // classic support/bounce zone; sitting right at an extension is exhaustion.
+    if (nearestFibDist < 0.01) { // within 1% of a Fib level
+        if (nearestFibName === "level_618" || nearestFibName === "level_500") {
+            score += 0.8;
+            reasons.push(`Holding Fib ${nearestFibName === "level_618" ? "0.618 (golden)" : "0.5"} support`);
+        }
+        else if (nearestFibName === "ext_1618" || nearestFibName === "ext_1272") {
+            score -= 0.8;
+            reasons.push(`At Fib ${nearestFibName === "ext_1618" ? "1.618" : "1.272"} extension (profit-take zone)`);
+        }
+    }
     // BUY-IN: at/just below current price (a small dip entry), never above it
     let buyTarget = price * (1 - Math.min(0.03, volPct * 0.25));
-    // SELL: above current price by the expected up-move
-    let sellTarget = price * (1 + upMove);
+    // SELL: above current price by the expected (capped) swing up-move
+    let sellTarget = price * (1 + swingUp);
     // STOP-LOSS: below the entry, beyond the expected downside, but capped
-    let stopLoss = Math.min(buyTarget, price) * (1 - Math.max(0.02, downRisk * 0.6));
-    // If a volume point-of-control sits just above, use it as a realistic sell magnet
+    let stopLoss = Math.min(buyTarget, price) * (1 - Math.max(0.02, swingDown * 0.6));
+    // Snap the BUY toward the nearest Fibonacci SUPPORT just below current price
+    // (within the entry band) — Fib retracements are natural pullback entries.
+    const buyFloor = price * (1 - Math.min(0.05, volPct * 0.6));
+    const fibSupport = fibLevels.filter(l => l < price && l >= buyFloor).pop(); // closest below
+    if (fibSupport)
+        buyTarget = Math.max(buyTarget, fibSupport); // nearest Fib support as entry
+    // Snap the SELL toward the nearest Fibonacci RESISTANCE above price, but never
+    // beyond the realistic swing cap we set earlier.
+    const sellCeil = price * (1 + swingUp);
+    const fibResistance = fibLevels.find(l => l > price && l <= sellCeil); // closest above within cap
+    if (fibResistance)
+        sellTarget = Math.min(sellCeil, Math.max(sellTarget, fibResistance));
+    // If a volume point-of-control sits just above AND within the swing cap, use it
+    // as a realistic sell magnet (never beyond the capped swing range).
     const poc = vpg?.pointOfControl;
-    if (poc && poc > price && poc < price * 1.5)
+    if (poc && poc > price && poc <= sellCeil)
         sellTarget = Math.max(sellTarget, poc);
     // Guarantee logical ordering: stop < buy ≤ price ≤ sell
     buyTarget = Math.min(buyTarget, price);
@@ -2849,6 +2906,7 @@ function analyzeMarket(candles, currentPrice) {
             rsi: rsiVal, stochRsi: stoch, mfi: mfiVal, waveTrend: wt,
             divergence: div, pattern: pattern?.name || "none", parabolic,
             pointOfControl: poc || null, volumeGaps: vpg?.gaps?.length || 0,
+            fib, fibNearest: nearestFib, fibBuy: fibSupport || null, fibSell: fibResistance || null,
         },
         cycle,
         moon: moonPhase(),
@@ -3826,6 +3884,7 @@ function QuantumAI() {
     });
     const [chatInput, setChatInput] = useState("");
     const [chatLoading, setChatLoading] = useState(false);
+    const [onBackup, setOnBackup] = useState(false); // true when a reply came from the Gemini fallback
     const [speaking, setSpeaking] = useState(false); // TTS actively talking
     const chatEndRef = useRef(null);
     // Speak helper that applies the user's voice customizations + tracks speaking state
@@ -4279,7 +4338,13 @@ in a safe. Never share it with anyone.
             }
             catch { /* sources are best-effort */ }
             const sysWithSources = pcfg(persona).sys + sourceContext;
-            const reply = await callClaude(hist, persona, { sys: sysWithSources });
+            const result = await callClaude(hist, persona, { sys: sysWithSources });
+            const reply = typeof result === "string" ? result : result.reply;
+            const isFallback = typeof result === "object" && result.fallback;
+            if (isFallback)
+                setOnBackup(true);
+            else
+                setOnBackup(false);
             sfxPing();
             setChatLoading(false);
             // Speak the full reply immediately (drives the core's speaking state + waveform)
@@ -4288,16 +4353,16 @@ in a safe. Never share it with anyone.
             // Stream the text in, word by word, so it "flows in"
             const words = reply.split(/(\s+)/);
             let acc = "";
-            setChatMsgs(m => [...m, { role: "bot", text: "", streaming: true }]);
+            setChatMsgs(m => [...m, { role: "bot", text: "", streaming: true, backup: isFallback }]);
             for (let i = 0; i < words.length; i++) {
                 acc += words[i];
                 const shown = acc;
-                setChatMsgs(m => { const copy = m.slice(); copy[copy.length - 1] = { role: "bot", text: shown, streaming: i < words.length - 1 }; return copy; });
+                setChatMsgs(m => { const copy = m.slice(); copy[copy.length - 1] = { role: "bot", text: shown, streaming: i < words.length - 1, backup: isFallback }; return copy; });
                 // small delay per token; skip delay for whitespace chunks
                 if (words[i].trim())
                     await new Promise(r => setTimeout(r, 18));
             }
-            setChatMsgs(m => { const copy = m.slice(); copy[copy.length - 1] = { role: "bot", text: acc }; return copy; });
+            setChatMsgs(m => { const copy = m.slice(); copy[copy.length - 1] = { role: "bot", text: acc, backup: isFallback }; return copy; });
         }
         catch {
             setChatLoading(false);
@@ -4758,6 +4823,7 @@ in a safe. Never share it with anyone.
                             React.createElement("span", { className: "hud-led" }),
                             React.createElement("span", { className: "nm" }, uc.displayName),
                             React.createElement("span", { className: "st" }, coreState === "idle" ? "Online · Web search active" : coreStatusText.replace(/^[●◉⟳◆]\s*/, "")),
+                            onBackup && (React.createElement("span", { title: "Claude is unavailable \u2014 AXIS is running on the Gemini backup. The site owner should check the Anthropic API key/billing.", style: { marginLeft: "0.5rem", fontSize: "0.6rem", fontWeight: 800, letterSpacing: "0.06em", padding: "0.15rem 0.5rem", borderRadius: 8, background: "rgba(255,159,10,0.15)", border: "0.5px solid rgba(255,159,10,0.45)", color: "#ff9f0a" } }, "\u26A1 BACKUP MODE")),
                             (chatLoading || listening || speaking) && (React.createElement("div", { className: "hud-eq" },
                                 React.createElement("i", null),
                                 React.createElement("i", null),
@@ -4784,7 +4850,8 @@ in a safe. Never share it with anyone.
                                 React.createElement("div", { className: "hud-bubble" },
                                     m.text,
                                     m.streaming && React.createElement("span", { className: "stream-cursor" }, "\u258B"),
-                                    m.role === "bot" && !m.streaming && (React.createElement("button", { className: "hud-play", onClick: () => speakAs(m.text, persona), title: "Play" }, "\u25B6")))))),
+                                    m.role === "bot" && !m.streaming && (React.createElement("button", { className: "hud-play", onClick: () => speakAs(m.text, persona), title: "Play" }, "\u25B6")),
+                                    m.backup && !m.streaming && (React.createElement("span", { title: "This reply came from the Gemini backup, not Claude.", style: { display: "block", marginTop: "0.4rem", fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.04em", color: "#ff9f0a", opacity: 0.85 } }, "\u26A1 via backup AI")))))),
                             chatLoading && (React.createElement("div", { className: "hud-msg bot" },
                                 React.createElement("div", { className: "hud-av" }, pcfg().displayName[0]),
                                 React.createElement("div", { className: "hud-bubble" },

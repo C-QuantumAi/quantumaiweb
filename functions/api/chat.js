@@ -100,35 +100,63 @@ DELIVERY:
       ],
     };
 
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify(payload),
-    });
+    // ── Primary: Claude (this IS AXIS). If it fails for any reason, fall back
+    //    to Gemini so AXIS stays online instead of showing an error. ──
+    let text = null;
+    let usedFallback = false;
+    let claudeError = null;
 
-    if (!res.ok) {
-      const errText = await res.text();
+    if (env.ANTHROPIC_API_KEY) {
+      try {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": env.ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify(payload),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          text = (data.content || [])
+            .filter((b) => b.type === "text")
+            .map((b) => b.text)
+            .join("\n")
+            .trim();
+        } else {
+          claudeError = `Anthropic ${res.status}: ${(await res.text()).slice(0, 200)}`;
+        }
+      } catch (e) {
+        claudeError = "Anthropic request failed: " + String(e);
+      }
+    } else {
+      claudeError = "No ANTHROPIC_API_KEY configured";
+    }
+
+    // Fallback to Gemini if Claude produced nothing.
+    if ((!text || !text.length) && env.GEMINI_API_KEY) {
+      try {
+        text = await callGeminiFallback(env.GEMINI_API_KEY, system, messages);
+        usedFallback = true;
+      } catch (e) {
+        claudeError = (claudeError || "") + " | Gemini fallback failed: " + String(e);
+      }
+    }
+
+    if (!text || !text.length) {
+      // Both unavailable — return a clear, honest error.
       return new Response(
-        JSON.stringify({ error: `Anthropic API error: ${res.status}`, detail: errText }),
+        JSON.stringify({
+          error: "AI is temporarily unavailable. The site owner should check the ANTHROPIC_API_KEY (billing/credits) or set a GEMINI_API_KEY fallback.",
+          detail: claudeError,
+        }),
         { status: 502, headers: cors }
       );
     }
 
-    const data = await res.json();
-
-    // Concatenate all text blocks from the response (skips tool_use/search result blocks)
-    const text = (data.content || [])
-      .filter((b) => b.type === "text")
-      .map((b) => b.text)
-      .join("\n")
-      .trim();
-
     return new Response(
-      JSON.stringify({ reply: text || "…", persona }),
+      JSON.stringify({ reply: text, persona, fallback: usedFallback || undefined }),
       { status: 200, headers: cors }
     );
   } catch (err) {
@@ -137,6 +165,34 @@ DELIVERY:
       { status: 500, headers: cors }
     );
   }
+}
+
+// ── Gemini fallback ──────────────────────────────────────────────
+// Converts the Claude-style messages + system prompt into Gemini's format and
+// calls the Gemini API. Keeps the AXIS persona via a system instruction so the
+// fallback still sounds like AXIS (though behavior differs from Claude).
+async function callGeminiFallback(apiKey, system, messages) {
+  // Map roles: Claude uses user/assistant; Gemini uses user/model.
+  const contents = messages.map((m) => ({
+    role: m.role === "assistant" ? "model" : "user",
+    parts: [{ text: typeof m.content === "string" ? m.content : String(m.content ?? "") }],
+  }));
+
+  const body = {
+    system_instruction: { parts: [{ text: system }] },
+    contents,
+    generationConfig: { maxOutputTokens: 1024, temperature: 0.8 },
+  };
+
+  const model = "gemini-1.5-flash"; // fast + inexpensive; good for a fallback
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+  );
+  if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  return parts.map((p) => p.text || "").join("\n").trim();
 }
 
 export async function onRequestOptions() {
