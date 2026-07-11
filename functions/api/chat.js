@@ -156,7 +156,7 @@ DELIVERY:
     }
 
     return new Response(
-      JSON.stringify({ reply: text, persona, fallback: usedFallback || undefined }),
+      JSON.stringify({ reply: text, persona: "axis", fallback: usedFallback || undefined }),
       { status: 200, headers: cors }
     );
   } catch (err) {
