@@ -674,16 +674,16 @@ const CORE_SHAPES = {
     rings: "Ring Array",
     wave: "Waveform",
 };
-// ── Curated data connectors — pre-vetted, browser-safe (CORS-enabled) APIs.
-// Users toggle these on and (where needed) add their OWN key, which stays in
-// their browser. AXIS pulls fresh context from enabled sources at query time.
-// Only add sources here that are known-safe and CORS-accessible.
+// ── Curated data connectors — only sources that actually work from a browser.
+// A browser blocks most cross-origin API calls unless the API explicitly allows
+// it (CORS). Sources that don't allow it fail silently, so we list ONLY ones
+// verified to permit browser access, and we show a live status per source so
+// users can see what's genuinely feeding AXIS.
 const DATA_CONNECTORS = {
     coingecko_markets: {
         label: "CoinGecko — crypto prices",
         desc: "Live prices, market cap, and 24h moves for any coin.",
         needsKey: false,
-        // {q} is replaced by a coin id guess; kept simple + safe (fixed host)
         build: (q) => `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(q || "cardano")}&vs_currencies=usd&include_24hr_change=true`,
         hint: "Ask about a coin's price and AXIS will pull it live.",
     },
@@ -693,13 +693,6 @@ const DATA_CONNECTORS = {
         needsKey: false,
         build: () => `https://api.alternative.me/fng/?limit=1`,
         hint: "Adds live market sentiment to AXIS's context.",
-    },
-    frankfurter_fx: {
-        label: "Currency exchange rates",
-        desc: "Live fiat FX rates (USD, EUR, etc.).",
-        needsKey: false,
-        build: (q) => `https://api.frankfurter.app/latest?from=USD`,
-        hint: "AXIS can reference current exchange rates.",
     },
     wikipedia: {
         label: "Wikipedia summary",
@@ -748,6 +741,111 @@ async function fetchSourceContext(url, apiKey) {
     catch {
         return null;
     }
+}
+// Masked API-key input with a show/hide toggle. Defined at module level (not
+// inside the app component) so it isn't remounted on every keystroke — otherwise
+// the field would lose focus while typing.
+function KeyInput({ value, onChange, placeholder, shown, onToggle }) {
+    return (React.createElement("div", { style: { position: "relative", width: "100%" } },
+        React.createElement("input", { type: shown ? "text" : "password", value: value || "", onChange: onChange, placeholder: placeholder, autoComplete: "off", autoCapitalize: "off", autoCorrect: "off", spellCheck: "false", style: { width: "100%", boxSizing: "border-box", background: "rgba(255,255,255,0.05)",
+                border: "0.5px solid rgba(255,255,255,0.12)", borderRadius: 8,
+                padding: "0.55rem 2.6rem 0.55rem 0.75rem", color: "#fff", fontSize: "0.82rem",
+                fontFamily: "inherit", outline: "none" } }),
+        React.createElement("button", { type: "button", onClick: onToggle, title: shown ? "Hide key" : "Show key", "aria-label": shown ? "Hide API key" : "Show API key", style: { position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)",
+                background: "transparent", border: "none", cursor: "pointer",
+                padding: "0.25rem 0.4rem", borderRadius: 6, color: "rgba(180,210,255,0.7)",
+                fontSize: "0.95rem", lineHeight: 1 } }, shown ? "🙈" : "👁")));
+}
+// ── Attachments: let AXIS read documents and see images ─────────────
+// Everything is parsed IN THE BROWSER — files never touch our servers.
+// PDF text is extracted with pdf.js (CDN); images are sent to Claude natively.
+const MAX_ATTACH_BYTES = 8 * 1024 * 1024; // 8 MB per file
+const MAX_DOC_CHARS = 60000; // keep prompts sane
+function loadPdfJs() {
+    // Lazy-load pdf.js only when a PDF is actually attached.
+    if (window.pdfjsLib)
+        return Promise.resolve(window.pdfjsLib);
+    if (window.__pdfjsLoading)
+        return window.__pdfjsLoading;
+    window.__pdfjsLoading = new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js";
+        s.onload = () => {
+            try {
+                window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+                    "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+                resolve(window.pdfjsLib);
+            }
+            catch (e) {
+                reject(e);
+            }
+        };
+        s.onerror = () => reject(new Error("Couldn't load the PDF reader"));
+        document.head.appendChild(s);
+    });
+    return window.__pdfjsLoading;
+}
+async function extractPdfText(file) {
+    const pdfjs = await loadPdfJs();
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjs.getDocument({ data: buf }).promise;
+    let out = "";
+    const pages = Math.min(pdf.numPages, 80); // cap very long PDFs
+    for (let p = 1; p <= pages; p++) {
+        const page = await pdf.getPage(p);
+        const content = await page.getTextContent();
+        out += content.items.map(i => i.str).join(" ") + "\n\n";
+        if (out.length > MAX_DOC_CHARS)
+            break;
+    }
+    return {
+        text: out.slice(0, MAX_DOC_CHARS),
+        pages: pdf.numPages,
+        truncated: out.length > MAX_DOC_CHARS || pdf.numPages > pages,
+    };
+}
+function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result).split(",")[1]);
+        r.onerror = () => reject(new Error("Couldn't read the file"));
+        r.readAsDataURL(file);
+    });
+}
+// Turn a picked file into an attachment AXIS can use.
+async function parseAttachment(file) {
+    if (file.size > MAX_ATTACH_BYTES) {
+        throw new Error(`"${file.name}" is too large (max 8 MB)`);
+    }
+    const name = file.name;
+    const type = file.type || "";
+    const lower = name.toLowerCase();
+    // Images → sent to Claude as a native image block (it can actually see them)
+    if (type.startsWith("image/")) {
+        const media = ["image/jpeg", "image/png", "image/gif", "image/webp"].includes(type)
+            ? type : "image/png";
+        return { kind: "image", name, mediaType: media, data: await fileToBase64(file) };
+    }
+    // PDFs → extract the text in-browser
+    if (type === "application/pdf" || lower.endsWith(".pdf")) {
+        const { text, pages, truncated } = await extractPdfText(file);
+        if (!text.trim()) {
+            throw new Error(`"${name}" has no selectable text (it may be a scanned image PDF)`);
+        }
+        return { kind: "doc", name, text, meta: `${pages} page${pages === 1 ? "" : "s"}${truncated ? ", truncated" : ""}` };
+    }
+    // Plain text / markdown / csv / json / code
+    const textish = /\.(txt|md|markdown|csv|tsv|json|log|xml|yaml|yml|js|ts|py|sol|html|css)$/i.test(lower)
+        || type.startsWith("text/") || type === "application/json";
+    if (textish) {
+        const raw = await file.text();
+        return {
+            kind: "doc", name,
+            text: raw.slice(0, MAX_DOC_CHARS),
+            meta: raw.length > MAX_DOC_CHARS ? "truncated" : `${(file.size / 1024).toFixed(0)} KB`,
+        };
+    }
+    throw new Error(`"${name}" isn't a supported type. Use PDF, images, or text files (txt, md, csv, json, code).`);
 }
 async function callClaude(msgs, persona = "axis", custom = null) {
     const sys = custom?.sys || PERSONAS[persona]?.sys || PERSONAS.axis.sys;
@@ -3778,6 +3876,9 @@ function QuantumAI() {
     const [showSettings, setShowSettings] = useState(false);
     // ── External data sources (curated toggles + on-device custom) ──
     const [showSources, setShowSources] = useState(false);
+    // Live status per source: { [id]: "ok" | "failed" | "testing" } — so users can
+    // see what's ACTUALLY feeding AXIS rather than trusting a toggle that silently fails.
+    const [sourceStatus, setSourceStatus] = useState({});
     // ── Chat download + QAI encryption ──
     const [showDownload, setShowDownload] = useState(false);
     const [encPass, setEncPass] = useState("");
@@ -3799,6 +3900,30 @@ function QuantumAI() {
         }
         catch { }
     };
+    // Let the user TEST a source right now so they can see if it actually works
+    // (many APIs block browser access via CORS and would otherwise fail silently).
+    const testSource = async (id, url, key) => {
+        setSourceStatus(prev => ({ ...prev, [id]: "testing" }));
+        const ctx = await fetchSourceContext(url, key);
+        setSourceStatus(prev => ({ ...prev, [id]: ctx ? "ok" : "failed" }));
+    };
+    const StatusDot = ({ state }) => {
+        if (!state)
+            return null;
+        const map = {
+            ok: { c: "#30d158", t: "Working — this source is feeding AXIS" },
+            failed: { c: "#ff6b6b", t: "Blocked or unreachable — this source is NOT feeding AXIS (often CORS: the API doesn't allow browser access)" },
+            testing: { c: "#ffd60a", t: "Testing…" },
+        };
+        const m = map[state];
+        if (!m)
+            return null;
+        return React.createElement("span", { title: m.t, style: { display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: m.c, boxShadow: `0 0 6px ${m.c}`, marginLeft: 6, flexShrink: 0 } });
+    };
+    // Which key fields are currently revealed (by field id). Keys are MASKED by
+    // default so they aren't exposed to onlookers, screen-shares, or screenshots.
+    const [shownKeys, setShownKeys] = useState({});
+    const toggleKeyShown = (id) => setShownKeys(p => ({ ...p, [id]: !p[id] }));
     // ── AXIS account (optional sign-in) ──
     const [showSignIn, setShowSignIn] = useState(false);
     const [authUser, setAuthUser] = useState(() => {
@@ -3885,6 +4010,58 @@ function QuantumAI() {
     const [chatInput, setChatInput] = useState("");
     const [chatLoading, setChatLoading] = useState(false);
     const [onBackup, setOnBackup] = useState(false); // true when a reply came from the Gemini fallback
+    // ── Attachments (documents + images AXIS can read/see) ──
+    const [attachments, setAttachments] = useState([]);
+    const [attachBusy, setAttachBusy] = useState(false);
+    const [dragOver, setDragOver] = useState(false);
+    const attachInputRef = useRef(null);
+    // ── Stop generation ──
+    const stopRef = useRef(false);
+    const [streaming, setStreaming] = useState(false);
+    const [copiedIdx, setCopiedIdx] = useState(null);
+    const addAttachments = async (files) => {
+        const list = Array.from(files || []);
+        if (!list.length)
+            return;
+        setAttachBusy(true);
+        for (const f of list) {
+            try {
+                const a = await parseAttachment(f);
+                setAttachments(prev => [...prev, a]);
+            }
+            catch (err) {
+                showToast(err.message || "Couldn't read that file");
+            }
+        }
+        setAttachBusy(false);
+    };
+    const removeAttachment = (i) => setAttachments(prev => prev.filter((_, j) => j !== i));
+    const copyMessage = async (textToCopy, idx) => {
+        try {
+            await navigator.clipboard.writeText(textToCopy);
+            setCopiedIdx(idx);
+            setTimeout(() => setCopiedIdx(c => (c === idx ? null : c)), 1500);
+        }
+        catch {
+            showToast("Couldn't copy — your browser blocked clipboard access");
+        }
+    };
+    // Re-ask the last user message (regenerate the last AXIS reply)
+    const regenerateLast = () => {
+        if (chatLoading)
+            return;
+        const lastUser = [...chatMsgs].reverse().find(m => m.role === "user");
+        if (!lastUser)
+            return;
+        // drop the trailing bot reply so the new one replaces it
+        setChatMsgs(m => {
+            const copy = [...m];
+            while (copy.length && copy[copy.length - 1].role === "bot")
+                copy.pop();
+            return copy;
+        });
+        setTimeout(() => sendChat(lastUser.text), 30);
+    };
     const [speaking, setSpeaking] = useState(false); // TTS actively talking
     const chatEndRef = useRef(null);
     const chatBoxRef = useRef(null); // the scrollable .hud-msgs container
@@ -4308,19 +4485,43 @@ in a safe. Never share it with anyone.
     };
     const sendChat = async (override) => {
         const text = (typeof override === "string" ? override : chatInput).trim();
-        if (!text || chatLoading)
+        const atts = attachments;
+        // Allow sending with only attachments (no typed text)
+        if ((!text && !atts.length) || chatLoading)
             return;
         setChatInput("");
+        setAttachments([]);
         sfxSend();
-        const next = { role: "user", text };
+        const shownText = text || (atts.length ? `Analyze the attached ${atts.length > 1 ? "files" : atts[0].kind === "image" ? "image" : "document"}.` : "");
+        const next = { role: "user", text: shownText, atts: atts.map(a => ({ kind: a.kind, name: a.name })) };
         setChatMsgs(m => [...m, next]);
         setChatLoading(true);
         try {
-            const hist = [...chatMsgs, next].map(m => ({ role: m.role === "bot" ? "assistant" : "user", content: m.text }));
+            // Build history. The CURRENT turn may carry attachments as content blocks.
+            const prior = chatMsgs.map(m => ({ role: m.role === "bot" ? "assistant" : "user", content: m.text }));
+            let currentContent;
+            if (atts.length) {
+                const blocks = [];
+                for (const a of atts) {
+                    if (a.kind === "image") {
+                        blocks.push({ type: "image", source: { type: "base64", media_type: a.mediaType, data: a.data } });
+                    }
+                    else {
+                        blocks.push({ type: "text", text: `<document name="${a.name}"${a.meta ? ` info="${a.meta}"` : ""}>\n${a.text}\n</document>` });
+                    }
+                }
+                blocks.push({ type: "text", text: shownText });
+                currentContent = blocks;
+            }
+            else {
+                currentContent = shownText;
+            }
+            const hist = [...prior, { role: "user", content: currentContent }];
             // ── Pull context from the user's enabled data sources (in-browser) ──
             let sourceContext = "";
             try {
                 const parts = [];
+                const statusUpdate = {};
                 // Curated connectors the user enabled
                 for (const [id, cfg] of Object.entries(DATA_CONNECTORS)) {
                     const on = dataSources.curated?.[id];
@@ -4328,17 +4529,31 @@ in a safe. Never share it with anyone.
                         continue;
                     const url = cfg.build(text.toLowerCase().split(/\s+/).slice(-1)[0]);
                     const ctx = await fetchSourceContext(url, on.key);
-                    if (ctx)
+                    if (ctx) {
                         parts.push(`[${cfg.label}] ${ctx}`);
+                        statusUpdate[id] = "ok";
+                    }
+                    else {
+                        statusUpdate[id] = "failed";
+                    }
                 }
                 // On-device custom sources
-                for (const s of (dataSources.custom || [])) {
+                (dataSources.custom || []).forEach(() => { });
+                for (let i = 0; i < (dataSources.custom || []).length; i++) {
+                    const s = dataSources.custom[i];
                     if (!s.enabled || !s.url)
                         continue;
                     const ctx = await fetchSourceContext(s.url, s.key);
-                    if (ctx)
+                    if (ctx) {
                         parts.push(`[${s.name || "Custom source"}] ${ctx}`);
+                        statusUpdate["custom:" + i] = "ok";
+                    }
+                    else {
+                        statusUpdate["custom:" + i] = "failed";
+                    }
                 }
+                if (Object.keys(statusUpdate).length)
+                    setSourceStatus(prev => ({ ...prev, ...statusUpdate }));
                 if (parts.length) {
                     sourceContext = "\n\nADDITIONAL LIVE CONTEXT from the user's connected data sources "
                         + "(use if relevant; note it comes from user-configured sources):\n" + parts.join("\n\n");
@@ -4361,8 +4576,14 @@ in a safe. Never share it with anyone.
             // Stream the text in, word by word, so it "flows in"
             const words = reply.split(/(\s+)/);
             let acc = "";
+            stopRef.current = false;
+            setStreaming(true);
             setChatMsgs(m => [...m, { role: "bot", text: "", streaming: true, backup: isFallback }]);
             for (let i = 0; i < words.length; i++) {
+                if (stopRef.current) { // user pressed Stop — finish immediately
+                    acc = acc.trimEnd();
+                    break;
+                }
                 acc += words[i];
                 const shown = acc;
                 setChatMsgs(m => { const copy = m.slice(); copy[copy.length - 1] = { role: "bot", text: shown, streaming: i < words.length - 1, backup: isFallback }; return copy; });
@@ -4370,23 +4591,43 @@ in a safe. Never share it with anyone.
                 if (words[i].trim())
                     await new Promise(r => setTimeout(r, 18));
             }
-            setChatMsgs(m => { const copy = m.slice(); copy[copy.length - 1] = { role: "bot", text: acc, backup: isFallback }; return copy; });
+            const stopped = stopRef.current;
+            stopRef.current = false;
+            setStreaming(false);
+            setChatMsgs(m => { const copy = m.slice(); copy[copy.length - 1] = { role: "bot", text: acc, backup: isFallback, stopped: stopped || undefined }; return copy; });
         }
         catch {
             setChatLoading(false);
+            setStreaming(false);
             setChatMsgs(m => [...m, { role: "bot", text: "Connection error — please try again." }]);
         }
     };
+    const stopGenerating = () => {
+        stopRef.current = true;
+        try {
+            window.speechSynthesis?.cancel();
+        }
+        catch { }
+        setSpeaking(false);
+    };
     // ── Mic: Web Speech API speech-to-text ──
-    const toggleMic = () => {
+    const toggleMic = async () => {
         const SR = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
         if (!SR) {
-            showToast("Voice input isn't supported in this browser");
+            showToast("Voice input isn't supported in this browser — try Chrome, Edge, or Safari");
             return;
         }
         if (listening) {
-            recognitionRef.current?.stop();
+            try {
+                recognitionRef.current?.stop();
+            }
+            catch { }
             setListening(false);
+            return;
+        }
+        // Speech recognition requires a secure context (https) — fail loudly, not silently.
+        if (typeof window !== "undefined" && !window.isSecureContext) {
+            showToast("Voice input needs a secure (https) connection");
             return;
         }
         const rec = new SR();
@@ -4395,7 +4636,9 @@ in a safe. Never share it with anyone.
         rec.lang = (vv && vv.lang) || "en-US";
         rec.interimResults = true;
         rec.continuous = false;
+        rec.maxAlternatives = 1;
         let finalText = "";
+        let gotAnything = false;
         rec.onresult = (e) => {
             let interim = "";
             for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -4405,18 +4648,45 @@ in a safe. Never share it with anyone.
                 else
                     interim += t;
             }
-            setChatInput(finalText || interim);
+            gotAnything = true;
+            // Show live text in the input as you speak
+            setChatInput((finalText + interim).trim());
         };
-        rec.onerror = () => { setListening(false); };
+        // Surface the REAL reason instead of failing silently (this was the bug).
+        rec.onerror = (e) => {
+            setListening(false);
+            const err = e?.error || "unknown";
+            const msg = err === "not-allowed" || err === "service-not-allowed"
+                ? "Microphone blocked — allow mic access in your browser's address-bar permissions, then try again"
+                : err === "no-speech" ? "Didn't catch anything — try speaking again"
+                    : err === "audio-capture" ? "No microphone found on this device"
+                        : err === "network" ? "Speech service unreachable — check your connection"
+                            : err === "aborted" ? null // user stopped; not an error
+                                : `Voice input error: ${err}`;
+            if (msg)
+                showToast(msg);
+        };
         rec.onend = () => {
             setListening(false);
             const said = finalText.trim();
-            if (said)
+            if (said) {
                 sendChat(said);
+            }
+            else if (gotAnything) {
+                // We heard something but nothing was finalized — keep it in the box so
+                // the user can hit send rather than losing what they said.
+                showToast("Tap send to submit what you said");
+            }
         };
         recognitionRef.current = rec;
-        setListening(true);
-        rec.start();
+        try {
+            rec.start();
+            setListening(true);
+        }
+        catch (err) {
+            setListening(false);
+            showToast("Couldn't start the microphone — check browser mic permissions");
+        }
     };
     // Logo — primary: on-chain CExplorer token image; fallback: GitHub org avatar; final: SVG
     const Logo = ({ w = 40, h = 40, r = 9, style = {} }) => imgErr
@@ -4826,7 +5096,16 @@ in a safe. Never share it with anyone.
                                 border: on ? `2px solid ${t.accent}` : "2px solid rgba(255,255,255,0.15)",
                                 boxShadow: on ? `0 0 14px ${t.glow}` : "none", transition: "all 0.2s" } }));
                     })),
-                    React.createElement("div", { className: "hud-console" },
+                    React.createElement("div", { className: "hud-console", onDragOver: e => { e.preventDefault(); if (!dragOver)
+                            setDragOver(true); }, onDragLeave: e => { if (!e.currentTarget.contains(e.relatedTarget))
+                            setDragOver(false); }, onDrop: e => { e.preventDefault(); setDragOver(false); addAttachments(e.dataTransfer?.files); }, style: dragOver ? { outline: "2px dashed var(--hud)", outlineOffset: "-6px" } : undefined },
+                        dragOver && (React.createElement("div", { style: { position: "absolute", inset: 0, zIndex: 20, display: "grid", placeItems: "center", background: "rgba(0,20,40,0.75)", borderRadius: 20, pointerEvents: "none" } },
+                            React.createElement("div", { style: { textAlign: "center", color: "var(--hud)", fontWeight: 700 } },
+                                React.createElement("div", { style: { fontSize: "2rem", marginBottom: "0.4rem" } }, "\uD83D\uDCC4"),
+                                "Drop to let ",
+                                pcfg().displayName,
+                                " read it",
+                                React.createElement("div", { style: { fontSize: "0.72rem", opacity: 0.7, marginTop: "0.3rem", fontWeight: 400 } }, "PDF \u00B7 text \u00B7 code \u00B7 images")))),
                         React.createElement("div", { className: "hud-statusbar" },
                             React.createElement("span", { className: "hud-led" }),
                             React.createElement("span", { className: "nm" }, uc.displayName),
@@ -4853,13 +5132,24 @@ in a safe. Never share it with anyone.
                                             React.createElement("path", { className: "w w3", d: "M22 3 Q26 10 22 17" }))) : (React.createElement("path", { className: "mute", d: "M17 6 L24 14 M24 6 L17 14" })))),
                                 voiceOn && React.createElement("span", { className: "sound-led" }))),
                         React.createElement("div", { className: "hud-msgs", ref: chatBoxRef },
-                            chatMsgs.map((m, i) => (React.createElement("div", { key: i, className: `hud-msg ${m.role === "bot" ? "bot" : "user"}` },
-                                React.createElement("div", { className: "hud-av" }, m.role === "bot" ? pcfg().displayName[0] : "U"),
-                                React.createElement("div", { className: "hud-bubble" },
-                                    m.text,
-                                    m.streaming && React.createElement("span", { className: "stream-cursor" }, "\u258B"),
-                                    m.role === "bot" && !m.streaming && (React.createElement("button", { className: "hud-play", onClick: () => speakAs(m.text, persona), title: "Play" }, "\u25B6")),
-                                    m.backup && !m.streaming && (React.createElement("span", { title: "This reply came from the Gemini backup, not Claude.", style: { display: "block", marginTop: "0.4rem", fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.04em", color: "#ff9f0a", opacity: 0.85 } }, "\u26A1 via backup AI")))))),
+                            chatMsgs.map((m, i) => {
+                                const isLastBot = m.role === "bot" && !m.streaming && i === chatMsgs.length - 1;
+                                return (React.createElement("div", { key: i, className: `hud-msg ${m.role === "bot" ? "bot" : "user"}` },
+                                    React.createElement("div", { className: "hud-av" }, m.role === "bot" ? pcfg().displayName[0] : "U"),
+                                    React.createElement("div", { className: "hud-bubble" },
+                                        m.atts && m.atts.length > 0 && (React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.35rem", marginBottom: "0.5rem" } }, m.atts.map((a, j) => (React.createElement("span", { key: j, style: { display: "inline-flex", alignItems: "center", gap: "0.3rem", background: "rgba(0,0,0,0.25)", borderRadius: 8, padding: "0.2rem 0.45rem", fontSize: "0.68rem", opacity: 0.9 } },
+                                            a.kind === "image" ? "🖼" : "📄",
+                                            " ",
+                                            a.name))))),
+                                        m.text,
+                                        m.streaming && React.createElement("span", { className: "stream-cursor" }, "\u258B"),
+                                        m.stopped && React.createElement("span", { style: { opacity: 0.5, fontSize: "0.7rem" } }, " (stopped)"),
+                                        m.role === "bot" && !m.streaming && (React.createElement("span", { style: { display: "inline-flex", gap: "0.1rem", marginLeft: "0.4rem", verticalAlign: "middle" } },
+                                            React.createElement("button", { className: "hud-play", onClick: () => speakAs(m.text, persona), title: "Read aloud" }, "\u25B6"),
+                                            React.createElement("button", { className: "hud-play", onClick: () => copyMessage(m.text, i), title: "Copy" }, copiedIdx === i ? "✓" : "⧉"),
+                                            isLastBot && (React.createElement("button", { className: "hud-play", onClick: regenerateLast, title: "Regenerate this reply" }, "\u21BB")))),
+                                        m.backup && !m.streaming && (React.createElement("span", { title: "This reply came from the Gemini backup, not Claude.", style: { display: "block", marginTop: "0.4rem", fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.04em", color: "#ff9f0a", opacity: 0.85 } }, "\u26A1 via backup AI")))));
+                            }),
                             chatLoading && (React.createElement("div", { className: "hud-msg bot" },
                                 React.createElement("div", { className: "hud-av" }, pcfg().displayName[0]),
                                 React.createElement("div", { className: "hud-bubble" },
@@ -4868,17 +5158,39 @@ in a safe. Never share it with anyone.
                                         React.createElement("i", null),
                                         React.createElement("i", null))))),
                             React.createElement("div", { ref: chatEndRef })),
+                        (attachments.length > 0 || attachBusy) && (React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.5rem", padding: "0.75rem 1.2rem 0", alignItems: "center" } },
+                            attachments.map((a, i) => (React.createElement("span", { key: i, style: { display: "inline-flex", alignItems: "center", gap: "0.45rem", background: "rgba(0,198,255,0.1)", border: "0.5px solid rgba(0,198,255,0.3)", borderRadius: 10, padding: "0.35rem 0.6rem", fontSize: "0.75rem", color: "#cfeaff", maxWidth: 260 } },
+                                React.createElement("span", null, a.kind === "image" ? "🖼" : "📄"),
+                                React.createElement("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, a.name),
+                                a.meta && React.createElement("span", { style: { opacity: 0.55, flexShrink: 0 } },
+                                    "\u00B7 ",
+                                    a.meta),
+                                React.createElement("button", { onClick: () => removeAttachment(i), title: "Remove", style: { background: "transparent", border: "none", color: "rgba(200,225,255,0.6)", cursor: "pointer", fontSize: "0.85rem", lineHeight: 1, padding: 0, flexShrink: 0 } }, "\u00D7")))),
+                            attachBusy && React.createElement("span", { style: { fontSize: "0.75rem", color: "rgba(180,210,255,0.6)" } }, "Reading file\u2026"))),
                         React.createElement("div", { className: "hud-inputrow" },
                             React.createElement("button", { className: `hud-mic${listening ? " live" : ""}`, onClick: toggleMic, title: listening ? "Stop listening" : "Speak" }, "\uD83C\uDFA4"),
-                            React.createElement("input", { className: "hud-input", value: chatInput, onChange: e => setChatInput(e.target.value), onKeyDown: e => e.key === "Enter" && sendChat(), placeholder: listening ? "Listening…" : `Speak or type to ${pcfg().displayName}…`, autoFocus: true }),
-                            React.createElement("button", { className: "hud-send", onClick: () => sendChat(), disabled: chatLoading || !chatInput.trim() }, "\u2191"))),
+                            React.createElement("button", { className: "hud-mic", onClick: () => attachInputRef.current?.click(), title: "Attach a document or image for AXIS to analyze" }, "\uD83D\uDCCE"),
+                            React.createElement("input", { ref: attachInputRef, type: "file", multiple: true, style: { display: "none" }, accept: ".pdf,.txt,.md,.markdown,.csv,.tsv,.json,.log,.xml,.yaml,.yml,.js,.ts,.py,.sol,.html,.css,image/*", onChange: e => { addAttachments(e.target.files); e.target.value = ""; } }),
+                            React.createElement("input", { className: "hud-input", value: chatInput, onChange: e => setChatInput(e.target.value), onKeyDown: e => { if (e.key === "Enter" && !e.shiftKey) {
+                                    e.preventDefault();
+                                    sendChat();
+                                } }, onPaste: e => {
+                                    const f = Array.from(e.clipboardData?.files || []);
+                                    if (f.length) {
+                                        e.preventDefault();
+                                        addAttachments(f);
+                                    }
+                                }, placeholder: listening ? "Listening…" : attachments.length ? "Ask about the attached file…" : `Speak or type to ${pcfg().displayName}…`, autoFocus: true }),
+                            streaming ? (React.createElement("button", { className: "hud-send", onClick: stopGenerating, title: "Stop generating", style: { background: "rgba(255,90,77,0.9)" } }, "\u25A0")) : (React.createElement("button", { className: "hud-send", onClick: () => sendChat(), disabled: chatLoading || attachBusy || (!chatInput.trim() && !attachments.length) }, "\u2191")))),
                     React.createElement("div", { className: "hud-sources" },
                         React.createElement("span", { style: { fontSize: "0.6rem", letterSpacing: "0.12em", color: "var(--hud-dim)", alignSelf: "center" } }, "LIVE WEB SEARCH:"),
                         ["World News", "Crypto", "Stocks", "Wikipedia", "Britannica", "Science"].map(s => (React.createElement("span", { key: s, className: "hud-source" }, s)))),
                     React.createElement("div", { className: "hud-foot" },
-                        "\uD83C\uDFA4 TAP MIC TO SPEAK \u00B7 \uD83D\uDD08 TOGGLE VOICE \u00B7 \u25B6 REPLAY \u00B7 \u2699 PERSONALIZE YOUR ASSISTANT",
+                        "\uD83D\uDCCE ATTACH A DOC OR IMAGE \u00B7 \uD83C\uDFA4 TAP MIC TO SPEAK \u00B7 \uD83D\uDD08 TOGGLE VOICE \u00B7 \u29C9 COPY \u00B7 \u21BB REGENERATE \u00B7 \u2699 PERSONALIZE",
                         React.createElement("br", null),
-                        "Voice uses your browser's speech engine \u2014 best in Chrome, Edge & Safari. Your settings are saved on this device.")),
+                        "Drop a PDF, whitepaper, spreadsheet, code file, or chart into the chat and ",
+                        pcfg().displayName,
+                        " will analyze it. Files are read in your browser \u2014 they never leave your device.")),
                 showSettings && (React.createElement("div", { className: "overlay", onClick: () => setShowSettings(false) },
                     React.createElement("div", { className: "modal", onClick: e => e.stopPropagation(), style: { maxWidth: 540, textAlign: "left", maxHeight: "85vh", overflowY: "auto" } },
                         React.createElement("div", { className: "modal-title", style: { marginBottom: "0.3rem" } }, "Build your AI"),
@@ -4979,28 +5291,44 @@ in a safe. Never share it with anyone.
                             return (React.createElement("div", { key: id, style: { border: "0.5px solid rgba(255,255,255,0.1)", borderRadius: 12, padding: "0.85rem", marginBottom: "0.7rem", background: "rgba(255,255,255,0.02)" } },
                                 React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.6rem" } },
                                     React.createElement("div", null,
-                                        React.createElement("div", { style: { fontWeight: 600, fontSize: "0.88rem" } }, cfg.label),
+                                        React.createElement("div", { style: { fontWeight: 600, fontSize: "0.88rem", display: "flex", alignItems: "center" } },
+                                            cfg.label,
+                                            React.createElement(StatusDot, { state: sourceStatus[id] })),
                                         React.createElement("div", { style: { fontSize: "0.74rem", color: "rgba(180,210,255,0.55)", marginTop: "0.15rem" } }, cfg.desc)),
                                     React.createElement("button", { onClick: () => set({ enabled: !cur.enabled }), style: { flexShrink: 0, width: 46, height: 26, borderRadius: 13, cursor: "pointer", border: "none", position: "relative", transition: "all 0.2s", background: cur.enabled ? "#30d158" : "rgba(255,255,255,0.15)" } },
                                         React.createElement("span", { style: { position: "absolute", top: 3, left: cur.enabled ? 23 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "all 0.2s" } }))),
-                                cfg.needsKey && cur.enabled && (React.createElement("input", { value: cur.key || "", onChange: e => set({ key: e.target.value }), placeholder: "Your API key for this service", style: { width: "100%", boxSizing: "border-box", marginTop: "0.6rem", background: "rgba(255,255,255,0.05)", border: "0.5px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "0.55rem 0.75rem", color: "#fff", fontSize: "0.82rem", fontFamily: "inherit", outline: "none" } })),
-                                cur.enabled && React.createElement("div", { style: { fontSize: "0.7rem", color: "rgba(48,209,88,0.8)", marginTop: "0.5rem" } },
-                                    "\u2713 ",
-                                    cfg.hint)));
+                                cfg.needsKey && cur.enabled && (React.createElement("div", { style: { marginTop: "0.6rem" } },
+                                    React.createElement(KeyInput, { value: cur.key, onChange: e => set({ key: e.target.value }), placeholder: "Your API key for this service", shown: !!shownKeys[`curated:${id}`], onToggle: () => toggleKeyShown(`curated:${id}`) }))),
+                                cur.enabled && (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", marginTop: "0.5rem" } },
+                                    React.createElement("button", { onClick: () => testSource(id, cfg.build("cardano"), cur.key), style: { fontSize: "0.7rem", fontWeight: 700, padding: "0.3rem 0.7rem", borderRadius: 8, cursor: "pointer", background: "rgba(0,198,255,0.1)", border: "0.5px solid rgba(0,198,255,0.3)", color: "var(--blue)", fontFamily: "inherit" } }, "Test"),
+                                    React.createElement("span", { style: { fontSize: "0.7rem", color: sourceStatus[id] === "failed" ? "#ff6b6b" : "rgba(48,209,88,0.8)" } }, sourceStatus[id] === "failed" ? "✕ Not working — blocked by the API" :
+                                        sourceStatus[id] === "ok" ? "✓ Working" :
+                                            sourceStatus[id] === "testing" ? "Testing…" : cfg.hint)))));
                         }),
                         React.createElement("div", { style: { fontSize: "0.7rem", fontWeight: 800, letterSpacing: "0.12em", color: "var(--blue)", textTransform: "uppercase", margin: "1.25rem 0 0.5rem" } }, "Your custom sources (advanced)"),
-                        React.createElement("p", { style: { fontSize: "0.74rem", color: "rgba(180,210,255,0.5)", lineHeight: 1.5, marginBottom: "0.8rem" } }, "Add any API that returns data your browser can read (must allow CORS). AXIS will fetch it and use the result as context."),
+                        React.createElement("div", { style: { background: "rgba(255,213,79,0.06)", border: "0.5px solid rgba(255,213,79,0.25)", borderRadius: 10, padding: "0.7rem 0.9rem", fontSize: "0.74rem", color: "rgba(255,225,150,0.9)", lineHeight: 1.5, marginBottom: "0.8rem" } },
+                            "\u26A0 ",
+                            React.createElement("strong", null, "Many APIs won't work here."),
+                            " Browsers block most cross-origin requests (CORS), and APIs that require a key usually block browser access on purpose. Add your source, then hit ",
+                            React.createElement("strong", null, "Test"),
+                            " \u2014 the status light tells you honestly whether AXIS can actually read it."),
                         (dataSources.custom || []).map((s, i) => {
                             const upd = (patch) => { const c = [...dataSources.custom]; c[i] = { ...c[i], ...patch }; saveSources({ ...dataSources, custom: c }); };
                             const del = () => { const c = dataSources.custom.filter((_, j) => j !== i); saveSources({ ...dataSources, custom: c }); };
                             return (React.createElement("div", { key: i, style: { border: "0.5px solid rgba(255,255,255,0.1)", borderRadius: 12, padding: "0.85rem", marginBottom: "0.7rem", background: "rgba(255,255,255,0.02)" } },
                                 React.createElement("div", { style: { display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.5rem" } },
                                     React.createElement("input", { value: s.name || "", onChange: e => upd({ name: e.target.value }), placeholder: "Source name", style: { flex: 1, background: "rgba(255,255,255,0.05)", border: "0.5px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "0.5rem 0.7rem", color: "#fff", fontSize: "0.82rem", fontFamily: "inherit", outline: "none" } }),
+                                    React.createElement(StatusDot, { state: sourceStatus["custom:" + i] }),
                                     React.createElement("button", { onClick: () => upd({ enabled: !s.enabled }), style: { flexShrink: 0, width: 46, height: 26, borderRadius: 13, cursor: "pointer", border: "none", position: "relative", background: s.enabled ? "#30d158" : "rgba(255,255,255,0.15)" } },
                                         React.createElement("span", { style: { position: "absolute", top: 3, left: s.enabled ? 23 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "all 0.2s" } })),
                                     React.createElement("button", { onClick: del, style: { flexShrink: 0, background: "rgba(255,80,80,0.12)", border: "0.5px solid rgba(255,80,80,0.3)", borderRadius: 8, color: "#ff6b6b", cursor: "pointer", padding: "0.4rem 0.6rem", fontSize: "0.8rem" } }, "\uD83D\uDDD1")),
                                 React.createElement("input", { value: s.url || "", onChange: e => upd({ url: e.target.value }), placeholder: "https://api.example.com/endpoint", autoCapitalize: "off", autoCorrect: "off", style: { width: "100%", boxSizing: "border-box", marginBottom: "0.5rem", background: "rgba(255,255,255,0.05)", border: "0.5px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "0.5rem 0.7rem", color: "#fff", fontSize: "0.82rem", fontFamily: "inherit", outline: "none" } }),
-                                React.createElement("input", { value: s.key || "", onChange: e => upd({ key: e.target.value }), placeholder: "API key (optional \u2014 stays on this device)", style: { width: "100%", boxSizing: "border-box", background: "rgba(255,255,255,0.05)", border: "0.5px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "0.5rem 0.7rem", color: "#fff", fontSize: "0.82rem", fontFamily: "inherit", outline: "none" } })));
+                                React.createElement(KeyInput, { value: s.key, onChange: e => upd({ key: e.target.value }), placeholder: "API key (optional \u2014 stays on this device)", shown: !!shownKeys[`custom:${i}`], onToggle: () => toggleKeyShown(`custom:${i}`) }),
+                                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.6rem", marginTop: "0.5rem" } },
+                                    React.createElement("button", { onClick: () => testSource("custom:" + i, s.url, s.key), disabled: !s.url, style: { fontSize: "0.7rem", fontWeight: 700, padding: "0.3rem 0.7rem", borderRadius: 8, cursor: s.url ? "pointer" : "not-allowed", background: "rgba(0,198,255,0.1)", border: "0.5px solid rgba(0,198,255,0.3)", color: "var(--blue)", fontFamily: "inherit", opacity: s.url ? 1 : 0.4 } }, "Test"),
+                                    React.createElement("span", { style: { fontSize: "0.7rem", color: sourceStatus["custom:" + i] === "failed" ? "#ff6b6b" : sourceStatus["custom:" + i] === "ok" ? "rgba(48,209,88,0.9)" : "rgba(180,210,255,0.45)" } }, sourceStatus["custom:" + i] === "failed" ? "✕ Blocked — this API doesn't allow browser access" :
+                                        sourceStatus["custom:" + i] === "ok" ? "✓ Working — AXIS can read this" :
+                                            sourceStatus["custom:" + i] === "testing" ? "Testing…" : "Test it to see if it works"))));
                         }),
                         React.createElement("button", { onClick: () => saveSources({ ...dataSources, custom: [...(dataSources.custom || []), { name: "", url: "", key: "", enabled: true }] }), style: { width: "100%", padding: "0.7rem", borderRadius: 10, fontWeight: 700, fontSize: "0.85rem", cursor: "pointer", background: "rgba(0,198,255,0.1)", border: "0.5px solid rgba(0,198,255,0.3)", color: "var(--blue)" } }, "+ Add custom source"),
                         React.createElement("button", { className: "modal-cancel", onClick: () => setShowSources(false) }, "Done")))),
