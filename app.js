@@ -3062,7 +3062,99 @@ async function fetchCoinOHLC(coinId, days = 7) {
     catch { }
     return [];
 }
-// ── Daily candles WITH VOLUME for the TA engine (needs ~200+ days for SMA200) ──
+// ── Multi-timeframe TA support ──────────────────────────────────────
+// Each timeframe maps to the CoinGecko `days` window that yields the right
+// candle GRANULARITY. CoinGecko auto-selects granularity from the window:
+//   days=1        → ~5-minute candles
+//   days 2..90    → ~hourly candles
+//   days >90      → daily candles
+// So we pick a `days` window that (a) gives enough candles for the indicators
+// and (b) actually reflects the requested timeframe. Where the public data
+// can't honestly support a timeframe (very short intraday, or multi-year at
+// fine detail), we say so rather than showing fake precision.
+const TIMEFRAMES = [
+    { id: "5m", label: "5 Min", days: 1, granularity: "~5-minute candles", note: "" },
+    { id: "15m", label: "15 Min", days: 1, granularity: "~5-minute candles, grouped", note: "Approximated from 5-minute data." },
+    { id: "30m", label: "30 Min", days: 2, granularity: "~hourly candles", note: "Approximated — free data is hourly below 1H." },
+    { id: "1h", label: "1 Hour", days: 7, granularity: "hourly candles", note: "" },
+    { id: "4h", label: "4 Hour", days: 30, granularity: "hourly candles, grouped to 4H", note: "" },
+    { id: "1d", label: "1 Day", days: 240, granularity: "daily candles", note: "" },
+    { id: "1w", label: "1 Week", days: 365, granularity: "daily candles, grouped to weekly", note: "" },
+    { id: "1M", label: "1 Month", days: 900, granularity: "daily candles, grouped to monthly", note: "" },
+    { id: "1y", label: "1 Year", days: 365, granularity: "daily candles", note: "One year of daily data." },
+    { id: "2y", label: "2 Year", days: 730, granularity: "daily candles", note: "Two years of daily data." },
+    { id: "4y", label: "4 Year", days: 1460, granularity: "daily candles", note: "Full cycle — daily data." },
+];
+// Group fine candles into a coarser timeframe (e.g. hourly → 4H, daily → weekly).
+function groupCandles(candles, groupSize) {
+    if (groupSize <= 1)
+        return candles;
+    const out = [];
+    for (let i = 0; i < candles.length; i += groupSize) {
+        const slice = candles.slice(i, i + groupSize);
+        if (!slice.length)
+            continue;
+        out.push({
+            t: slice[0].t,
+            o: slice[0].o,
+            h: Math.max(...slice.map(c => c.h)),
+            l: Math.min(...slice.map(c => c.l)),
+            c: slice[slice.length - 1].c,
+            v: slice.reduce((s, c) => s + (c.v || 0), 0),
+        });
+    }
+    return out;
+}
+// Fetch candles for a specific timeframe, at the correct granularity, with volume.
+// Map common CoinGecko ids → exchange base symbols. Coins NOT here (long-tail,
+// $QAI, etc.) skip the exchange and use CoinGecko directly.
+const EXCHANGE_SYMBOL = {
+    bitcoin: "BTC", ethereum: "ETH", cardano: "ADA", solana: "SOL", ripple: "XRP",
+    dogecoin: "DOGE", litecoin: "LTC", chainlink: "LINK", polkadot: "DOT",
+    avalanche2: "AVAX", "matic-network": "MATIC", tron: "TRX", "shiba-inu": "SHIB",
+    uniswap: "UNI", cosmos: "ATOM", stellar: "XLM", "bitcoin-cash": "BCH",
+    aptos: "APT", "near": "NEAR", filecoin: "FIL", "internet-computer": "ICP",
+    binancecoin: "BNB", "official-trump": "TRUMP",
+};
+// Which of our timeframes exchanges can serve as TRUE candles (Coinbase/Binance).
+const EXCHANGE_INTERVAL = { "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1h", "4h": "4h", "1d": "1d", "1w": "1w" };
+async function fetchTimeframeCandles(coinId, tfId) {
+    const tf = TIMEFRAMES.find(t => t.id === tfId) || TIMEFRAMES.find(t => t.id === "1d");
+    // 1) Try REAL candles from an exchange (Coinbase → Binance → Binance US),
+    //    for supported coins + intervals. This gives genuine intraday candles
+    //    instead of approximating from price points.
+    const exSym = EXCHANGE_SYMBOL[coinId];
+    const exInt = EXCHANGE_INTERVAL[tfId];
+    if (exSym && exInt && useProxy()) {
+        try {
+            const limit = tfId === "1w" ? 200 : 400;
+            const r = await fetch(`/api/cg?ex=${exSym}&interval=${exInt}&limit=${limit}`);
+            if (r.ok) {
+                const j = await r.json();
+                if (Array.isArray(j.candles) && j.candles.length >= 30) {
+                    return { candles: j.candles, tf: { ...tf, granularity: `real ${tf.label} candles`, note: `Live candles from ${j.source}.`, source: j.source } };
+                }
+            }
+        }
+        catch { /* fall through to CoinGecko */ }
+    }
+    // 2) Fallback: CoinGecko market_chart (approximated candles from price points).
+    const mc = await cgFetch(`/coins/${coinId}/market_chart?vs_currency=usd&days=${tf.days}`, { cacheMs: tf.days <= 2 ? 15000 : 60000 });
+    const prices = mc?.prices || [];
+    const vols = mc?.total_volumes || [];
+    if (prices.length < 30)
+        return { candles: [], tf };
+    let candles = prices.map((p, i) => {
+        const price = p[1];
+        const prev = i > 0 ? prices[i - 1][1] : price;
+        const next = i < prices.length - 1 ? prices[i + 1][1] : price;
+        return { t: p[0], o: prev, h: Math.max(price, prev, next), l: Math.min(price, prev, next), c: price, v: vols[i]?.[1] || 0 };
+    });
+    const groupMap = { "15m": 3, "4h": 4, "1w": 7, "1M": 30 };
+    if (groupMap[tfId])
+        candles = groupCandles(candles, groupMap[tfId]);
+    return { candles, tf };
+}
 async function fetchAnalysisCandles(coinId, days = 240) {
     try {
         const mc = await cgFetch(`/coins/${coinId}/market_chart?vs_currency=usd&days=${days}&interval=daily`, { cacheMs: 60000 });
@@ -3203,6 +3295,8 @@ function MarketsPage({ Logo, showToast }) {
     const [detail, setDetail] = useState(null);
     const [analysis, setAnalysis] = useState(null);
     const [analysisLoad, setAnalysisLoad] = useState(true);
+    const [timeframe, setTimeframe] = useState("1d"); // TA timeframe (see TIMEFRAMES)
+    const [tfMeta, setTfMeta] = useState(null); // granularity/note for the active TF
     const [detailLoad, setDetailLoad] = useState(false);
     const [candles, setCandles] = useState([]);
     const [candleLoad, setCandleLoad] = useState(true);
@@ -3264,24 +3358,27 @@ function MarketsPage({ Logo, showToast }) {
         });
         return () => { alive = false; };
     }, [selCoin]);
-    // ── Run the technical-analysis engine on daily candles (with volume) ──
+    // ── Run the technical-analysis engine on the SELECTED timeframe ──
     useEffect(() => {
         let alive = true;
         setAnalysisLoad(true);
         setAnalysis(null);
-        fetchAnalysisCandles(selCoin.id, 240).then(candles => {
+        fetchTimeframeCandles(selCoin.id, timeframe).then(({ candles, tf }) => {
             if (!alive)
                 return;
-            // current price: prefer live detail price, else last candle close
+            setTfMeta(tf);
             const px = (detail && detail.symbol === selCoin.symbol && detail.price)
                 ? detail.price
                 : (candles.length ? candles[candles.length - 1].c : null);
             const result = analyzeMarket(candles, px);
             setAnalysis(result);
             setAnalysisLoad(false);
-        });
+        }).catch(() => { if (alive) {
+            setAnalysis(null);
+            setAnalysisLoad(false);
+        } });
         return () => { alive = false; };
-    }, [selCoin]);
+    }, [selCoin, timeframe]);
     useEffect(() => {
         const iv = setInterval(() => {
             fetchCoinDetail(selCoin.id).then(d => { if (d) {
@@ -3526,7 +3623,7 @@ function MarketsPage({ Logo, showToast }) {
                                 analysis.score))) : (React.createElement("div", { style: { fontSize: "1rem", color: "rgba(180,210,255,0.4)" } },
                             "Insufficient data for ",
                             selCoin.symbol))),
-                    analysis?.cycle && (React.createElement("div", { style: { textAlign: "right", fontSize: "0.7rem", color: "rgba(180,210,255,0.6)" } },
+                    analysis?.cycle && ["1d", "1w", "1M", "1y", "2y", "4y"].includes(timeframe) && (React.createElement("div", { style: { textAlign: "right", fontSize: "0.7rem", color: "rgba(180,210,255,0.6)" } },
                         React.createElement("div", { style: { fontWeight: 700, color: analysis.cycle.bias === "bullish" ? "#30d158" : analysis.cycle.bias === "bearish" ? "#FF453A" : "#FFD54F" } },
                             "\u20BF ",
                             analysis.cycle.phase),
@@ -3545,6 +3642,22 @@ function MarketsPage({ Logo, showToast }) {
                             analysis.cycle.halfBias,
                             " \u00B7 ",
                             analysis.moon)))),
+                React.createElement("div", { style: { marginTop: "0.95rem", paddingTop: "0.85rem", borderTop: "0.5px solid rgba(255,255,255,0.07)" } },
+                    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem", flexWrap: "wrap" } },
+                        React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.1em", color: "rgba(180,210,255,0.45)", textTransform: "uppercase" } }, "Timeframe"),
+                        tfMeta?.granularity && (React.createElement("span", { style: { fontSize: "0.6rem", color: "rgba(180,210,255,0.4)" } },
+                            "\u00B7 ",
+                            tfMeta.granularity))),
+                    React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.35rem" } }, TIMEFRAMES.map(tf => (React.createElement("button", { key: tf.id, onClick: () => setTimeframe(tf.id), style: {
+                            fontSize: "0.7rem", fontWeight: 700, padding: "0.3rem 0.65rem", borderRadius: 8, cursor: "pointer",
+                            fontFamily: "inherit", transition: "all 0.15s",
+                            background: timeframe === tf.id ? "rgba(0,198,255,0.18)" : "rgba(255,255,255,0.04)",
+                            border: `0.5px solid ${timeframe === tf.id ? "rgba(0,198,255,0.55)" : "rgba(255,255,255,0.09)"}`,
+                            color: timeframe === tf.id ? "#7fdfff" : "rgba(200,225,255,0.65)",
+                        } }, tf.label)))),
+                    tfMeta?.note && (React.createElement("div", { style: { fontSize: "0.62rem", color: "rgba(255,213,79,0.75)", marginTop: "0.5rem", lineHeight: 1.4 } },
+                        "\u24D8 ",
+                        tfMeta.note))),
                 analysis?.reasons?.length > 0 && (React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem", marginTop: "0.85rem" } }, analysis.reasons.slice(0, 8).map((r, i) => (React.createElement("span", { key: i, style: { fontSize: "0.64rem", fontWeight: 600, padding: "0.25rem 0.6rem", borderRadius: 8, background: "rgba(255,255,255,0.04)", border: "0.5px solid rgba(255,255,255,0.07)", color: "rgba(200,225,255,0.75)" } }, r)))))),
             analysis?.indicators && (React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(110px,1fr))", gap: "0.5rem", marginBottom: "1rem" } }, [
                 { k: "RSI", v: analysis.indicators.rsi?.toFixed(0), zone: analysis.indicators.rsi < 30 ? "Oversold" : analysis.indicators.rsi > 70 ? "Overbought" : "Neutral" },

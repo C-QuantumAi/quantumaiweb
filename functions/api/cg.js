@@ -34,6 +34,29 @@ export async function onRequestGet(context) {
     }
   }
 
+  // ── Exchange candles branch: real OHLCV from Coinbase / Binance / Binance US ──
+  // Query: /api/cg?ex=BTC&interval=5m&limit=300
+  // Tries providers in order and returns the first that yields real candles,
+  // normalized to [{t,o,h,l,c,v}]. Done server-side to avoid browser CORS and
+  // regional geo-blocks (Binance blocks some IPs; the proxy tries US too).
+  const exSym = url.searchParams.get("ex");
+  if (exSym) {
+    const interval = url.searchParams.get("interval") || "1h";
+    const limit = Math.min(1000, parseInt(url.searchParams.get("limit") || "300", 10));
+    const sym = exSym.toUpperCase();
+
+    const out = await fetchExchangeCandles(sym, interval, limit);
+    if (out && out.length) {
+      return new Response(JSON.stringify({ source: out._source, candles: out }), {
+        status: 200, headers: { ...cors, "Cache-Control": "public, max-age=15" },
+      });
+    }
+    // Nothing worked — tell the caller so it can fall back to CoinGecko.
+    return new Response(JSON.stringify({ candles: [], source: null }), {
+      status: 200, headers: { ...cors, "Cache-Control": "no-store" },
+    });
+  }
+
   // ── Fear & Greed Index branch (alternative.me) ──
   const fng = url.searchParams.get("fng");
   if (fng) {
@@ -135,4 +158,64 @@ export async function onRequestOptions() {
       "Access-Control-Allow-Headers": "Content-Type",
     },
   });
+}
+
+// ── Exchange candle helpers ──────────────────────────────────────────
+// Interval strings differ per exchange; map our canonical intervals across.
+const BINANCE_INTERVAL = {
+  "1m":"1m","5m":"5m","15m":"15m","30m":"30m","1h":"1h","4h":"4h",
+  "1d":"1d","1w":"1w","1M":"1M",
+};
+// Coinbase uses granularity in SECONDS and only supports a fixed set.
+const COINBASE_GRANULARITY = {
+  "1m":60,"5m":300,"15m":900,"1h":3600,"6h":21600,"1d":86400,
+};
+
+// Quote currency preferences per provider.
+async function fetchExchangeCandles(sym, interval, limit) {
+  // 1) Coinbase (best for US-hosted; real candles; no key)
+  try {
+    const g = COINBASE_GRANULARITY[interval];
+    if (g) {
+      const r = await fetch(`https://api.exchange.coinbase.com/products/${sym}-USD/candles?granularity=${g}`, {
+        headers: { "Accept": "application/json", "User-Agent": "QuantumAI/1.0" },
+      });
+      if (r.ok) {
+        const rows = await r.json();
+        // Coinbase returns [ time, low, high, open, close, volume ], newest first
+        if (Array.isArray(rows) && rows.length) {
+          const candles = rows.slice(0, limit).reverse().map(x => ({
+            t: x[0] * 1000, o: x[3], h: x[2], l: x[1], c: x[4], v: x[5],
+          }));
+          candles._source = "coinbase";
+          return candles;
+        }
+      }
+    }
+  } catch {}
+
+  // 2) Binance global (real candles, no key; may be geo-blocked on some IPs)
+  const bi = BINANCE_INTERVAL[interval];
+  if (bi) {
+    for (const host of ["https://api.binance.com", "https://api.binance.us"]) {
+      try {
+        const r = await fetch(`${host}/api/v3/klines?symbol=${sym}USDT&interval=${bi}&limit=${limit}`, {
+          headers: { "Accept": "application/json" },
+        });
+        if (r.ok) {
+          const rows = await r.json();
+          // Binance kline: [openTime,open,high,low,close,volume,...]
+          if (Array.isArray(rows) && rows.length) {
+            const candles = rows.map(x => ({
+              t: x[0], o: +x[1], h: +x[2], l: +x[3], c: +x[4], v: +x[5],
+            }));
+            candles._source = host.includes(".us") ? "binance-us" : "binance";
+            return candles;
+          }
+        }
+      } catch {}
+    }
+  }
+
+  return null; // caller falls back to CoinGecko
 }
