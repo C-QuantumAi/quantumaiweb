@@ -57,6 +57,20 @@ export async function onRequestGet(context) {
     });
   }
 
+  // ── Market structure branch: funding rate, open interest, order book ──
+  // Query: /api/cg?struct=BTC
+  const structSym = url.searchParams.get("struct");
+  if (structSym) {
+    try {
+      const data = await fetchMarketStructure(structSym);
+      return new Response(JSON.stringify(data), {
+        status: 200, headers: { ...cors, "Cache-Control": "public, max-age=20" },
+      });
+    } catch (err) {
+      return new Response(JSON.stringify({ error: "structure fetch failed", detail: String(err) }), { status: 502, headers: cors });
+    }
+  }
+
   // ── Fear & Greed Index branch (alternative.me) ──
   const fng = url.searchParams.get("fng");
   if (fng) {
@@ -218,4 +232,86 @@ async function fetchExchangeCandles(sym, interval, limit) {
   }
 
   return null; // caller falls back to CoinGecko
+}
+
+// ── Market structure: funding, open interest, order book ─────────────
+// All free, no API keys. Fetched server-side (avoids CORS + geo-blocks).
+export async function fetchMarketStructure(sym) {
+  const out = { funding: null, openInterest: null, book: null, source: null };
+  const S = sym.toUpperCase();
+
+  // Funding rate + open interest from Binance futures (try global, then US-safe Bybit)
+  try {
+    const r = await fetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${S}USDT`);
+    if (r.ok) {
+      const j = await r.json();
+      if (j && j.lastFundingRate != null) {
+        out.funding = {
+          rate: +j.lastFundingRate,              // e.g. 0.0001 = 0.01% per 8h
+          annualized: +j.lastFundingRate * 3 * 365,
+          markPrice: +j.markPrice,
+          nextFundingTime: j.nextFundingTime,
+        };
+        out.source = "binance-futures";
+      }
+    }
+  } catch {}
+
+  try {
+    const r = await fetch(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${S}USDT`);
+    if (r.ok) {
+      const j = await r.json();
+      if (j && j.openInterest != null) out.openInterest = { contracts: +j.openInterest };
+    }
+  } catch {}
+
+  // Fallback for funding: Bybit (different region availability)
+  if (!out.funding) {
+    try {
+      const r = await fetch(`https://api.bybit.com/v5/market/tickers?category=linear&symbol=${S}USDT`);
+      if (r.ok) {
+        const j = await r.json();
+        const t = j?.result?.list?.[0];
+        if (t?.fundingRate != null) {
+          out.funding = {
+            rate: +t.fundingRate,
+            annualized: +t.fundingRate * 3 * 365,
+            markPrice: +t.markPrice,
+          };
+          if (t.openInterest != null) out.openInterest = { contracts: +t.openInterest };
+          out.source = "bybit";
+        }
+      }
+    } catch {}
+  }
+
+  // Order book depth from Coinbase (spot, US-friendly, no key)
+  try {
+    const r = await fetch(`https://api.exchange.coinbase.com/products/${S}-USD/book?level=2`, {
+      headers: { "User-Agent": "QuantumAI/1.0" },
+    });
+    if (r.ok) {
+      const j = await r.json();
+      const bids = (j.bids || []).slice(0, 50).map(b => [+b[0], +b[1]]);
+      const asks = (j.asks || []).slice(0, 50).map(a => [+a[0], +a[1]]);
+      if (bids.length && asks.length) {
+        const bidVal = bids.reduce((s, b) => s + b[0] * b[1], 0);
+        const askVal = asks.reduce((s, a) => s + a[0] * a[1], 0);
+        const total = bidVal + askVal;
+        out.book = {
+          bestBid: bids[0][0],
+          bestAsk: asks[0][0],
+          spreadPct: ((asks[0][0] - bids[0][0]) / bids[0][0]) * 100,
+          bidValue: bidVal,
+          askValue: askVal,
+          // >50% means more resting buy interest near the top of book
+          imbalancePct: total ? (bidVal / total) * 100 : 50,
+          topBids: bids.slice(0, 8),
+          topAsks: asks.slice(0, 8),
+        };
+      }
+    }
+  } catch {}
+
+  return out;
 }

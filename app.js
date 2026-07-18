@@ -2712,7 +2712,7 @@ function moonPhase(date = new Date()) {
     return ["🌑 New", "🌒 Waxing Crescent", "🌓 First Quarter", "🌔 Waxing Gibbous", "🌕 Full", "🌖 Waning Gibbous", "🌗 Last Quarter", "🌘 Waning Crescent"][idx];
 }
 // ── Master analysis: combine everything into buy/sell/stop + signal ──
-function analyzeMarket(candles, currentPrice) {
+function analyzeMarket(candles, currentPrice, structure = null) {
     if (!candles || candles.length < 30 || !currentPrice)
         return null;
     const closes = candles.map(c => c.c);
@@ -2865,6 +2865,63 @@ function analyzeMarket(candles, currentPrice) {
                 reasons.push(`Above point-of-control ($${fmtPriceTA(vpg.pointOfControl)}) — that's the downside magnet`);
         }
     }
+    // ── Market structure factors (funding, open interest, order book) ──
+    // Only applied when the data exists (major exchange-listed coins). Positioning
+    // is one of the few genuinely informative inputs: crowded leveraged trades
+    // unwind violently, which is why extremes count against the crowded side.
+    const structNotes = [];
+    if (structure) {
+        // FUNDING — the real cash flow between longs and shorts.
+        if (structure.funding && typeof structure.funding.rate === "number") {
+            const annPct = structure.funding.annualized * 100; // annualized %
+            if (annPct > 50) {
+                score -= 1.2;
+                structNotes.push(`Funding extreme (+${annPct.toFixed(0)}% ann.) — longs heavily crowded, squeeze risk`);
+            }
+            else if (annPct > 25) {
+                score -= 0.6;
+                structNotes.push(`Funding elevated (+${annPct.toFixed(0)}% ann.) — leveraged longs building`);
+            }
+            else if (annPct < -50) {
+                score += 1.2;
+                structNotes.push(`Funding deeply negative (${annPct.toFixed(0)}% ann.) — shorts crowded, squeeze fuel`);
+            }
+            else if (annPct < -25) {
+                score += 0.6;
+                structNotes.push(`Funding negative (${annPct.toFixed(0)}% ann.) — leveraged shorts building`);
+            }
+        }
+        // OPEN INTEREST + price direction — is new money entering with the trend?
+        if (structure.openInterest && s8 != null && s55 != null) {
+            const trendUp = s8 > s55;
+            // We only know current OI (no history here), so treat it as context, not a
+            // strong signal — a modest confirmation nudge at most.
+            if (structure.openInterest.contracts > 0) {
+                if (trendUp) {
+                    score += 0.2;
+                    structNotes.push("Open interest present with uptrend — leveraged participation");
+                }
+                else {
+                    score -= 0.2;
+                    structNotes.push("Open interest present with downtrend — leveraged participation");
+                }
+            }
+        }
+        // ORDER BOOK IMBALANCE — deliberately small weight. Resting walls are often
+        // spoofed and pulled; treating them as strong signal would be naive.
+        if (structure.book && typeof structure.book.imbalancePct === "number") {
+            const imb = structure.book.imbalancePct;
+            if (imb > 62) {
+                score += 0.4;
+                structNotes.push(`Book skewed to bids (${imb.toFixed(0)}%) — buy-side liquidity stacked`);
+            }
+            else if (imb < 38) {
+                score -= 0.4;
+                structNotes.push(`Book skewed to asks (${(100 - imb).toFixed(0)}%) — sell-side liquidity stacked`);
+            }
+        }
+    }
+    reasons.push(...structNotes);
     // Verdict
     let signal, signalColor;
     if (score >= 4) {
@@ -2975,6 +3032,12 @@ function analyzeMarket(candles, currentPrice) {
     let sellTarget = price * (1 + swingUp);
     // STOP-LOSS: below the entry, beyond the expected downside, but capped
     let stopLoss = Math.min(buyTarget, price) * (1 - Math.max(0.02, swingDown * 0.6));
+    // A wide spread means real slippage — give the stop a little more room so it
+    // isn't triggered by the bid/ask gap alone.
+    if (structure?.book?.spreadPct > 0.1) {
+        const pad = Math.min(0.01, (structure.book.spreadPct / 100) * 3);
+        stopLoss *= (1 - pad);
+    }
     // Snap the BUY toward the nearest Fibonacci SUPPORT just below current price
     // (within the entry band) — Fib retracements are natural pullback entries.
     const buyFloor = price * (1 - Math.min(0.05, volPct * 0.6));
@@ -3297,6 +3360,8 @@ function MarketsPage({ Logo, showToast }) {
     const [analysisLoad, setAnalysisLoad] = useState(true);
     const [timeframe, setTimeframe] = useState("1d"); // TA timeframe (see TIMEFRAMES)
     const [tfMeta, setTfMeta] = useState(null); // granularity/note for the active TF
+    const [mktStruct, setMktStruct] = useState(null); // funding / OI / order book
+    const [structLoad, setStructLoad] = useState(false);
     const [detailLoad, setDetailLoad] = useState(false);
     const [candles, setCandles] = useState([]);
     const [candleLoad, setCandleLoad] = useState(true);
@@ -3358,7 +3423,36 @@ function MarketsPage({ Logo, showToast }) {
         });
         return () => { alive = false; };
     }, [selCoin]);
+    // ── Market structure (funding, open interest, order book) — refreshes live ──
+    useEffect(() => {
+        const sym = EXCHANGE_SYMBOL[selCoin.id];
+        if (!sym || !useProxy()) {
+            setMktStruct(null);
+            return;
+        }
+        let alive = true;
+        const load = async () => {
+            setStructLoad(true);
+            try {
+                const r = await fetch(`/api/cg?struct=${sym}`);
+                if (r.ok && alive)
+                    setMktStruct(await r.json());
+            }
+            catch {
+                if (alive)
+                    setMktStruct(null);
+            }
+            if (alive)
+                setStructLoad(false);
+        };
+        load();
+        const iv = setInterval(load, 30000); // refresh every 30s
+        return () => { alive = false; clearInterval(iv); };
+    }, [selCoin]);
     // ── Run the technical-analysis engine on the SELECTED timeframe ──
+    // Candles are fetched when coin/timeframe changes; the market-structure data
+    // refreshes on its own timer, so we keep the candles and just re-score.
+    const candlesRef = useRef([]);
     useEffect(() => {
         let alive = true;
         setAnalysisLoad(true);
@@ -3366,12 +3460,12 @@ function MarketsPage({ Logo, showToast }) {
         fetchTimeframeCandles(selCoin.id, timeframe).then(({ candles, tf }) => {
             if (!alive)
                 return;
+            candlesRef.current = candles;
             setTfMeta(tf);
             const px = (detail && detail.symbol === selCoin.symbol && detail.price)
                 ? detail.price
                 : (candles.length ? candles[candles.length - 1].c : null);
-            const result = analyzeMarket(candles, px);
-            setAnalysis(result);
+            setAnalysis(analyzeMarket(candles, px, mktStruct));
             setAnalysisLoad(false);
         }).catch(() => { if (alive) {
             setAnalysis(null);
@@ -3379,6 +3473,16 @@ function MarketsPage({ Logo, showToast }) {
         } });
         return () => { alive = false; };
     }, [selCoin, timeframe]);
+    // Re-score (no refetch) when live market structure updates.
+    useEffect(() => {
+        const candles = candlesRef.current;
+        if (!candles || !candles.length)
+            return;
+        const px = (detail && detail.symbol === selCoin.symbol && detail.price)
+            ? detail.price
+            : candles[candles.length - 1].c;
+        setAnalysis(analyzeMarket(candles, px, mktStruct));
+    }, [mktStruct]);
     useEffect(() => {
         const iv = setInterval(() => {
             fetchCoinDetail(selCoin.id).then(d => { if (d) {
@@ -3659,6 +3763,66 @@ function MarketsPage({ Logo, showToast }) {
                         "\u24D8 ",
                         tfMeta.note))),
                 analysis?.reasons?.length > 0 && (React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.4rem", marginTop: "0.85rem" } }, analysis.reasons.slice(0, 8).map((r, i) => (React.createElement("span", { key: i, style: { fontSize: "0.64rem", fontWeight: 600, padding: "0.25rem 0.6rem", borderRadius: 8, background: "rgba(255,255,255,0.04)", border: "0.5px solid rgba(255,255,255,0.07)", color: "rgba(200,225,255,0.75)" } }, r)))))),
+            mktStruct && (mktStruct.funding || mktStruct.book) && (React.createElement("div", { className: "glass", style: { padding: "1.4rem", marginTop: "1rem" } },
+                React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.35rem" } },
+                    React.createElement("h3", { style: { fontSize: "0.95rem", fontWeight: 800, letterSpacing: "-0.01em" } },
+                        "Market Structure",
+                        React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.08em", color: "rgba(48,209,88,0.9)", marginLeft: "0.6rem", textTransform: "uppercase" } }, "\u25CF Live")),
+                    mktStruct.source && (React.createElement("span", { style: { fontSize: "0.62rem", color: "rgba(180,210,255,0.45)" } },
+                        "via ",
+                        mktStruct.source,
+                        " \u00B7 refreshes 30s"))),
+                React.createElement("p", { style: { fontSize: "0.68rem", color: "rgba(180,210,255,0.5)", lineHeight: 1.5, marginBottom: "1rem" } }, "Facts about current positioning and liquidity \u2014 not predictions. This describes what traders are doing right now, which is information you can weigh yourself."),
+                React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: "0.7rem" } },
+                    mktStruct.funding && (() => {
+                        const r = mktStruct.funding.rate * 100; // % per 8h
+                        const ann = mktStruct.funding.annualized * 100; // % annualized
+                        const hot = Math.abs(ann) > 30;
+                        const col = r > 0.02 ? "#ff9f0a" : r < -0.02 ? "#30d158" : "rgba(200,225,255,0.85)";
+                        return (React.createElement("div", { style: { background: "rgba(255,255,255,0.03)", border: "0.5px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "0.85rem" } },
+                            React.createElement("div", { style: { fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.08em", color: "rgba(180,210,255,0.45)", textTransform: "uppercase", marginBottom: "0.3rem" } }, "Funding Rate"),
+                            React.createElement("div", { style: { fontSize: "1.15rem", fontWeight: 800, color: col } },
+                                r >= 0 ? "+" : "",
+                                r.toFixed(4),
+                                "%"),
+                            React.createElement("div", { style: { fontSize: "0.62rem", color: "rgba(180,210,255,0.5)", marginTop: "0.2rem" } },
+                                ann >= 0 ? "+" : "",
+                                ann.toFixed(1),
+                                "% annualized"),
+                            React.createElement("div", { style: { fontSize: "0.64rem", color: col, marginTop: "0.4rem", lineHeight: 1.4 } },
+                                r > 0.02 ? "Longs pay shorts — leveraged buyers crowded" :
+                                    r < -0.02 ? "Shorts pay longs — leveraged sellers crowded" :
+                                        "Balanced — no crowding either way",
+                                hot && " ⚠")));
+                    })(),
+                    mktStruct.openInterest && (React.createElement("div", { style: { background: "rgba(255,255,255,0.03)", border: "0.5px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "0.85rem" } },
+                        React.createElement("div", { style: { fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.08em", color: "rgba(180,210,255,0.45)", textTransform: "uppercase", marginBottom: "0.3rem" } }, "Open Interest"),
+                        React.createElement("div", { style: { fontSize: "1.15rem", fontWeight: 800 } }, mktStruct.openInterest.contracts.toLocaleString(undefined, { maximumFractionDigits: 0 })),
+                        React.createElement("div", { style: { fontSize: "0.64rem", color: "rgba(180,210,255,0.5)", marginTop: "0.4rem", lineHeight: 1.4 } }, "Total open leveraged positions. Rising OI + rising price = new money; rising OI + falling price = new shorts."))),
+                    mktStruct.book && (() => {
+                        const imb = mktStruct.book.imbalancePct;
+                        const col = imb > 58 ? "#30d158" : imb < 42 ? "#ff5a4d" : "rgba(200,225,255,0.85)";
+                        return (React.createElement("div", { style: { background: "rgba(255,255,255,0.03)", border: "0.5px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "0.85rem" } },
+                            React.createElement("div", { style: { fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.08em", color: "rgba(180,210,255,0.45)", textTransform: "uppercase", marginBottom: "0.3rem" } }, "Book Imbalance"),
+                            React.createElement("div", { style: { fontSize: "1.15rem", fontWeight: 800, color: col } },
+                                imb.toFixed(1),
+                                "% bids"),
+                            React.createElement("div", { style: { display: "flex", height: 6, borderRadius: 3, overflow: "hidden", marginTop: "0.45rem", background: "rgba(255,90,77,0.25)" } },
+                                React.createElement("div", { style: { width: `${imb}%`, background: "rgba(48,209,88,0.75)" } })),
+                            React.createElement("div", { style: { fontSize: "0.64rem", color: "rgba(180,210,255,0.5)", marginTop: "0.4rem", lineHeight: 1.4 } }, "Resting buy vs sell orders near the top of book. Liquidity, not intent \u2014 walls can be pulled.")));
+                    })(),
+                    mktStruct.book && (React.createElement("div", { style: { background: "rgba(255,255,255,0.03)", border: "0.5px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "0.85rem" } },
+                        React.createElement("div", { style: { fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.08em", color: "rgba(180,210,255,0.45)", textTransform: "uppercase", marginBottom: "0.3rem" } }, "Spread"),
+                        React.createElement("div", { style: { fontSize: "1.15rem", fontWeight: 800 } },
+                            mktStruct.book.spreadPct.toFixed(3),
+                            "%"),
+                        React.createElement("div", { style: { fontSize: "0.62rem", color: "rgba(180,210,255,0.5)", marginTop: "0.2rem" } },
+                            "$",
+                            fmtPrice(mktStruct.book.bestBid),
+                            " / $",
+                            fmtPrice(mktStruct.book.bestAsk)),
+                        React.createElement("div", { style: { fontSize: "0.64rem", color: "rgba(180,210,255,0.5)", marginTop: "0.4rem", lineHeight: 1.4 } }, "Tight spread = liquid market. Wide = thin, higher slippage.")))),
+                structLoad && (React.createElement("div", { style: { fontSize: "0.62rem", color: "rgba(180,210,255,0.4)", marginTop: "0.7rem" } }, "Refreshing\u2026")))),
             analysis?.indicators && (React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(110px,1fr))", gap: "0.5rem", marginBottom: "1rem" } }, [
                 { k: "RSI", v: analysis.indicators.rsi?.toFixed(0), zone: analysis.indicators.rsi < 30 ? "Oversold" : analysis.indicators.rsi > 70 ? "Overbought" : "Neutral" },
                 { k: "Stoch RSI", v: analysis.indicators.stochRsi?.toFixed(0), zone: analysis.indicators.stochRsi < 20 ? "Oversold" : analysis.indicators.stochRsi > 80 ? "Overbought" : "Neutral" },
