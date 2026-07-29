@@ -2383,16 +2383,19 @@ function cmcToRow(c) {
         sparkline_in_7d: { price: [] },
     };
 }
-// ── Top coins (CoinGecko primary, CoinMarketCap fallback) ──
-async function fetchTopCoins() {
+// ── Top coins (CoinGecko primary, CoinMarketCap fallback), paginated ──
+// 100 per page, pages 1..5 (top 500 by market cap).
+async function fetchTopCoins(page = 1) {
+    const pg = Math.min(5, Math.max(1, page));
     try {
-        const cg = await cgFetch("/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=50&page=1&sparkline=true&price_change_percentage=24h", { cacheMs: 20000 });
+        const cg = await cgFetch(`/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=${pg}&sparkline=true&price_change_percentage=24h`, { cacheMs: 20000 });
         if (cg && cg.length)
             return cg;
     }
     catch { }
-    // Fallback: CoinMarketCap listings
-    const cmc = await cmcFetch("/v1/cryptocurrency/listings/latest?limit=50&convert=USD");
+    // Fallback: CoinMarketCap listings (start index maps to the page)
+    const start = (pg - 1) * 100 + 1;
+    const cmc = await cmcFetch(`/v1/cryptocurrency/listings/latest?start=${start}&limit=100&convert=USD`);
     if (cmc?.data?.length)
         return cmc.data.map(cmcToRow);
     return [];
@@ -2907,6 +2910,18 @@ function analyzeMarket(candles, currentPrice, structure = null) {
                 }
             }
         }
+        // LONG/SHORT ACCOUNT RATIO — extreme crowding is contrarian (like funding).
+        if (structure.longShort && typeof structure.longShort.longPct === "number") {
+            const lp = structure.longShort.longPct;
+            if (lp > 75) {
+                score -= 0.7;
+                structNotes.push(`${lp.toFixed(0)}% of accounts long — crowded, contrarian bearish`);
+            }
+            else if (lp < 25) {
+                score += 0.7;
+                structNotes.push(`${(100 - lp).toFixed(0)}% of accounts short — crowded, contrarian bullish`);
+            }
+        }
         // ORDER BOOK IMBALANCE — deliberately small weight. Resting walls are often
         // spoofed and pulled; treating them as strong signal would be naive.
         if (structure.book && typeof structure.book.imbalancePct === "number") {
@@ -3375,12 +3390,14 @@ function MarketsPage({ Logo, showToast }) {
     const [searchOpen, setSearchOpen] = useState(false);
     const [searching, setSearching] = useState(false);
     const [tableFilter, setTableFilter] = useState("");
+    const [coinPage, setCoinPage] = useState(1); // 1..5, 100 coins each
     // Map CoinGecko id → TradingView symbol (best-effort)
     const tvSymbolFor = (sym) => `BINANCE:${(sym || "").toUpperCase()}USDT`;
-    // ── Load top coins on mount + auto-refresh every 30s ──
+    // ── Load top coins for the current page on mount + auto-refresh every 30s ──
     useEffect(() => {
         let alive = true;
-        const load = () => fetchTopCoins().then(c => {
+        setCoinsLoad(true);
+        const load = () => fetchTopCoins(coinPage).then(c => {
             if (!alive)
                 return;
             if (c && c.length)
@@ -3390,7 +3407,7 @@ function MarketsPage({ Logo, showToast }) {
         load();
         const iv = setInterval(load, 30000);
         return () => { alive = false; clearInterval(iv); };
-    }, []);
+    }, [coinPage]);
     // ── Load Fear & Greed on mount + refresh hourly ──
     useEffect(() => {
         let alive = true;
@@ -3774,6 +3791,21 @@ function MarketsPage({ Logo, showToast }) {
                         " \u00B7 refreshes 30s"))),
                 React.createElement("p", { style: { fontSize: "0.68rem", color: "rgba(180,210,255,0.5)", lineHeight: 1.5, marginBottom: "1rem" } }, "Facts about current positioning and liquidity \u2014 not predictions. This describes what traders are doing right now, which is information you can weigh yourself."),
                 React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: "0.7rem" } },
+                    mktStruct.longShort && (() => {
+                        const lp = mktStruct.longShort.longPct;
+                        const crowded = lp > 70 || lp < 30;
+                        const col = lp > 60 ? "#30d158" : lp < 40 ? "#ff5a4d" : "rgba(200,225,255,0.85)";
+                        return (React.createElement("div", { style: { background: "rgba(255,255,255,0.03)", border: "0.5px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "0.85rem" } },
+                            React.createElement("div", { style: { fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.08em", color: "rgba(180,210,255,0.45)", textTransform: "uppercase", marginBottom: "0.3rem" } }, "Long / Short"),
+                            React.createElement("div", { style: { fontSize: "1.15rem", fontWeight: 800, color: col } },
+                                lp.toFixed(0),
+                                "% long"),
+                            React.createElement("div", { style: { display: "flex", height: 6, borderRadius: 3, overflow: "hidden", marginTop: "0.45rem", background: "rgba(255,90,77,0.25)" } },
+                                React.createElement("div", { style: { width: `${lp}%`, background: "rgba(48,209,88,0.75)" } })),
+                            React.createElement("div", { style: { fontSize: "0.64rem", color: "rgba(180,210,255,0.5)", marginTop: "0.4rem", lineHeight: 1.4 } }, crowded
+                                ? `${lp > 50 ? "Longs" : "Shorts"} very crowded (${(lp > 50 ? lp : 100 - lp).toFixed(0)}%) — crowded trades often unwind hard`
+                                : "Positioning is balanced between longs and shorts")));
+                    })(),
                     mktStruct.funding && (() => {
                         const r = mktStruct.funding.rate * 100; // % per 8h
                         const ann = mktStruct.funding.annualized * 100; // % annualized
@@ -3822,7 +3854,19 @@ function MarketsPage({ Logo, showToast }) {
                             " / $",
                             fmtPrice(mktStruct.book.bestAsk)),
                         React.createElement("div", { style: { fontSize: "0.64rem", color: "rgba(180,210,255,0.5)", marginTop: "0.4rem", lineHeight: 1.4 } }, "Tight spread = liquid market. Wide = thin, higher slippage.")))),
-                structLoad && (React.createElement("div", { style: { fontSize: "0.62rem", color: "rgba(180,210,255,0.4)", marginTop: "0.7rem" } }, "Refreshing\u2026")))),
+                structLoad && (React.createElement("div", { style: { fontSize: "0.62rem", color: "rgba(180,210,255,0.4)", marginTop: "0.7rem" } }, "Refreshing\u2026")),
+                analysis?.score != null && (() => {
+                    const s = parseFloat(analysis.score);
+                    const bias = s >= 1.5 ? { t: "Conditions favor LONGS", c: "#30d158", d: "The indicators and positioning lean bullish on this timeframe." }
+                        : s <= -1.5 ? { t: "Conditions favor SHORTS", c: "#ff5a4d", d: "The indicators and positioning lean bearish on this timeframe." }
+                            : { t: "No clear directional edge", c: "#FFD54F", d: "Signals are mixed. This is the condition where over-trading does the most damage." };
+                    return (React.createElement("div", { style: { marginTop: "1rem", padding: "0.9rem 1rem", borderRadius: 12, background: "rgba(255,255,255,0.03)", border: `0.5px solid ${bias.c}44` } },
+                        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" } },
+                            React.createElement("span", { style: { fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.08em", color: "rgba(180,210,255,0.45)", textTransform: "uppercase" } }, "Directional Bias"),
+                            React.createElement("span", { style: { fontSize: "0.9rem", fontWeight: 800, color: bias.c } }, bias.t)),
+                        React.createElement("p", { style: { fontSize: "0.7rem", color: "rgba(200,225,255,0.7)", lineHeight: 1.5, margin: "0.4rem 0 0" } }, bias.d),
+                        React.createElement("p", { style: { fontSize: "0.66rem", color: "rgba(255,159,10,0.85)", lineHeight: 1.5, margin: "0.55rem 0 0" } }, "\u26A0 Leverage warning: shorting and leveraged longs can lose more than you put in \u2014 you can be liquidated. This is a read of current conditions, not advice to open a position. Most leveraged retail traders lose money.")));
+                })())),
             analysis?.indicators && (React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(110px,1fr))", gap: "0.5rem", marginBottom: "1rem" } }, [
                 { k: "RSI", v: analysis.indicators.rsi?.toFixed(0), zone: analysis.indicators.rsi < 30 ? "Oversold" : analysis.indicators.rsi > 70 ? "Overbought" : "Neutral" },
                 { k: "Stoch RSI", v: analysis.indicators.stochRsi?.toFixed(0), zone: analysis.indicators.stochRsi < 20 ? "Oversold" : analysis.indicators.stochRsi > 80 ? "Overbought" : "Neutral" },
@@ -3883,7 +3927,9 @@ function MarketsPage({ Logo, showToast }) {
                         React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: "3px", height: 90 } }, [...fgData].reverse().map((d, i) => (React.createElement("div", { key: i, title: `${d.value} · ${d.label}`, style: { flex: 1, height: `${d.value}%`, background: fgColor(d.value), borderRadius: "2px 2px 0 0", opacity: 0.85 } })))))) : (React.createElement("div", { style: { textAlign: "center", padding: "1.5rem", color: "rgba(180,210,255,0.3)", fontSize: "0.8rem" } }, "Sentiment data unavailable right now.")))),
             React.createElement("div", { style: { background: "rgba(0,4,10,0.6)", border: "0.5px solid rgba(255,255,255,0.08)", borderRadius: 18, overflow: "hidden" } },
                 React.createElement("div", { style: { padding: "0.85rem 1.25rem", borderBottom: "0.5px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem" } },
-                    React.createElement("div", { style: { fontWeight: 700, fontSize: "0.92rem", letterSpacing: "-0.02em" } }, "Live Market \u2014 Top 50 Coins (All Chains)"),
+                    React.createElement("div", { style: { fontWeight: 700, fontSize: "0.92rem", letterSpacing: "-0.02em" } },
+                        "Live Market \u2014 Top 500 Coins",
+                        !tableFilter ? ` · Ranks ${(coinPage - 1) * 100 + 1}–${coinPage * 100}` : ""),
                     React.createElement("input", { value: tableFilter, onChange: e => setTableFilter(e.target.value), placeholder: "Filter list\u2026", style: { background: "rgba(255,255,255,0.05)", border: "0.5px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "0.45rem 0.8rem", color: "#fff", fontSize: "0.8rem", fontFamily: "inherit", outline: "none", width: "160px" } })),
                 coinsLoad ? (React.createElement("div", { style: { padding: "0.5rem 0" } },
                     Array.from({ length: 8 }).map((_, i) => (React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.7rem 1rem", borderBottom: "0.5px solid rgba(255,255,255,0.03)" } },
@@ -3899,7 +3945,7 @@ function MarketsPage({ Logo, showToast }) {
                         "Fetching live market data\u2026"))) : coins.length === 0 ? (React.createElement("div", { style: { textAlign: "center", padding: "2.5rem 1.5rem", color: "rgba(180,210,255,0.4)", fontSize: "0.85rem", lineHeight: 1.6 } },
                     "Market data is taking longer than usual to load.",
                     React.createElement("br", null),
-                    React.createElement("button", { onClick: () => { setCoinsLoad(true); fetchTopCoins().then(c => { if (c && c.length)
+                    React.createElement("button", { onClick: () => { setCoinsLoad(true); fetchTopCoins(coinPage).then(c => { if (c && c.length)
                             setCoins(c); setCoinsLoad(false); }); }, style: { marginTop: "0.75rem", padding: "0.5rem 1rem", borderRadius: 8, background: "rgba(0,198,255,0.12)", border: "0.5px solid rgba(0,198,255,0.3)", color: "var(--blue)", cursor: "pointer", fontSize: "0.8rem", fontWeight: 700 } }, "\u21BA Retry"))) : (React.createElement("div", { style: { overflowX: "auto" } },
                     React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" } },
                         React.createElement("thead", null,
@@ -3929,7 +3975,23 @@ function MarketsPage({ Logo, showToast }) {
                                 React.createElement("td", { style: { padding: "0.7rem 1rem", textAlign: "right", color: "rgba(180,210,255,0.7)", fontVariantNumeric: "tabular-nums" } }, fmtCap(c.total_volume)),
                                 React.createElement("td", { style: { padding: "0.7rem 1rem", textAlign: "right", width: 90 } },
                                     React.createElement(Sparkline, { data: c.sparkline_in_7d?.price, up: up }))));
-                        })))))),
+                        }))))),
+                !tableFilter && coins.length > 0 && (React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem", marginTop: "1rem", flexWrap: "wrap" } },
+                    React.createElement("button", { onClick: () => setCoinPage(p => Math.max(1, p - 1)), disabled: coinPage <= 1 || coinsLoad, style: { padding: "0.4rem 0.8rem", borderRadius: 8, fontSize: "0.78rem", fontWeight: 700, fontFamily: "inherit", cursor: coinPage <= 1 ? "not-allowed" : "pointer", background: "rgba(255,255,255,0.04)", border: "0.5px solid rgba(255,255,255,0.1)", color: coinPage <= 1 ? "rgba(200,225,255,0.3)" : "rgba(200,225,255,0.8)" } }, "\u2190 Prev"),
+                    [1, 2, 3, 4, 5].map(n => (React.createElement("button", { key: n, onClick: () => setCoinPage(n), disabled: coinsLoad, style: {
+                            minWidth: 36, padding: "0.4rem 0", borderRadius: 8, fontSize: "0.78rem", fontWeight: 800, fontFamily: "inherit", cursor: "pointer",
+                            background: coinPage === n ? "rgba(0,198,255,0.18)" : "rgba(255,255,255,0.04)",
+                            border: `0.5px solid ${coinPage === n ? "rgba(0,198,255,0.55)" : "rgba(255,255,255,0.1)"}`,
+                            color: coinPage === n ? "#7fdfff" : "rgba(200,225,255,0.7)",
+                        } }, n))),
+                    React.createElement("button", { onClick: () => setCoinPage(p => Math.min(5, p + 1)), disabled: coinPage >= 5 || coinsLoad, style: { padding: "0.4rem 0.8rem", borderRadius: 8, fontSize: "0.78rem", fontWeight: 700, fontFamily: "inherit", cursor: coinPage >= 5 ? "not-allowed" : "pointer", background: "rgba(255,255,255,0.04)", border: "0.5px solid rgba(255,255,255,0.1)", color: coinPage >= 5 ? "rgba(200,225,255,0.3)" : "rgba(200,225,255,0.8)" } }, "Next \u2192"),
+                    React.createElement("span", { style: { width: "100%", textAlign: "center", fontSize: "0.66rem", color: "rgba(180,210,255,0.4)", marginTop: "0.3rem" } },
+                        "Ranks ",
+                        (coinPage - 1) * 100 + 1,
+                        "\u2013",
+                        coinPage * 100,
+                        " by market cap",
+                        coinsLoad ? " · loading…" : "")))),
             React.createElement("div", { className: "disclaimer", style: { marginTop: "1.5rem" } },
                 React.createElement("strong", null, "\u26A0 Liability Disclaimer:"),
                 " Live price & market data from CoinGecko (CoinMarketCap fallback). Optional pro charts via TradingView with VuManChu Cipher A & B (third-party open-source indicators). The BUY-IN / SELL / STOP-LOSS levels and signal are generated by an algorithmic engine combining SMA 8/55/200, EMA 200, RSI, Stoch RSI, Money Flow, WaveTrend (Cipher B), divergences, chart-pattern recognition, volume pocket-gap profiling, parabolic-move detection, and the Bitcoin 4-year (halving) cycle. These are ",
@@ -5938,7 +6000,7 @@ in a safe. Never share it with anyone.
 
 (function(){
   if (typeof React === "undefined" || typeof ReactDOM === "undefined") {
-    document.getElementById("root").innerHTML = '<div style="font-family:Inter,sans-serif;color:#eaf4ff;text-align:center;margin:18vh auto;max-width:520px;padding:2rem"><h1 style="color:#00C6FF">QuantumAI</h1><p>Couldn\'t load libraries. Refresh.</p></div>';
+    document.getElementById("root").innerHTML = '<div style="color:#eaf4ff;text-align:center;margin:18vh auto;max-width:520px"><h1 style="color:#00C6FF">QuantumAI</h1><p>Couldn\'t load libraries. Refresh.</p></div>';
     return;
   }
   ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(QuantumAI));

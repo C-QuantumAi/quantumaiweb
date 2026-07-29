@@ -231,6 +231,29 @@ async function fetchExchangeCandles(sym, interval, limit) {
     }
   }
 
+  // 3) KuCoin (broad coverage incl. smaller caps; real candles, no key)
+  const KUCOIN_INTERVAL = {
+    "1m":"1min","5m":"5min","15m":"15min","30m":"30min","1h":"1hour",
+    "4h":"4hour","1d":"1day","1w":"1week",
+  };
+  const ki = KUCOIN_INTERVAL[interval];
+  if (ki) {
+    try {
+      const r = await fetch(`https://api.kucoin.com/api/v1/market/candles?type=${ki}&symbol=${sym}-USDT`);
+      if (r.ok) {
+        const j = await r.json();
+        // KuCoin: data = [ time(s), open, close, high, low, volume, turnover ], newest first
+        if (j?.data && Array.isArray(j.data) && j.data.length) {
+          const candles = j.data.slice(0, limit).reverse().map(x => ({
+            t: (+x[0]) * 1000, o: +x[1], c: +x[2], h: +x[3], l: +x[4], v: +x[5],
+          }));
+          candles._source = "kucoin";
+          return candles;
+        }
+      }
+    } catch {}
+  }
+
   return null; // caller falls back to CoinGecko
 }
 
@@ -308,6 +331,24 @@ export async function fetchMarketStructure(sym) {
           imbalancePct: total ? (bidVal / total) * 100 : 50,
           topBids: bids.slice(0, 8),
           topAsks: asks.slice(0, 8),
+        };
+      }
+    }
+  } catch {}
+
+  // Long/Short account ratio from Binance futures (published sentiment data)
+  try {
+    const r = await fetch(`https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=${S}USDT&period=5m&limit=1`);
+    if (r.ok) {
+      const arr = await r.json();
+      const row = Array.isArray(arr) && arr.length ? arr[arr.length - 1] : null;
+      if (row && row.longShortRatio != null) {
+        const ratio = +row.longShortRatio;              // longs / shorts
+        const longPct = (ratio / (1 + ratio)) * 100;    // % of accounts long
+        out.longShort = {
+          ratio,
+          longPct,
+          shortPct: 100 - longPct,
         };
       }
     }
