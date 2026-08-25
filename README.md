@@ -59,7 +59,7 @@ These features use the included `functions/` (Cloudflare Pages Functions). After
 
 | Variable | Used for | Get it free at |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | JARVIS/FRIDAY AI chat + web search | console.anthropic.com |
+| `ANTHROPIC_API_KEY` | AXIS AI | console.anthropic.com |
 | `BLOCKFROST_API_KEY` | Verify QAI + ADA payments (Cardano mainnet) | blockfrost.io |
 | `ETHERSCAN_API_KEY` | Verify USDT (ERC-20) payments | etherscan.io/myapikey |
 | `COINGECKO_API_KEY` | Faster, more reliable market data & charts (optional but recommended) | coingecko.com/en/developers/dashboard |
