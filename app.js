@@ -1498,7 +1498,7 @@ footer {
   border-bottom: 0.5px solid rgba(255,255,255,0.06);
   display: flex; align-items: center; gap: 1rem;
 }
-.dl-os-icon { font-size: 2.5rem; line-height: 1; }
+.dl-os-icon { font-size: 2.5rem; line-height: 1; width: 3rem; height: 3rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .dl-card-title { font-size: 1.1rem; font-weight: 700; letter-spacing: -0.03em; margin-bottom: 0.2rem; }
 .dl-card-sub { font-size: 0.78rem; color: var(--muted); }
 .dl-card-body { padding: 1.25rem 1.5rem; }
@@ -1603,8 +1603,14 @@ footer {
   color: rgba(255,255,255,0.4); line-height: 1.6; margin-top: 1rem;
 }
 .pay-disclaimer strong { color: rgba(255,69,58,0.8); }
+.nav-hamburger { display: none; background: rgba(255,255,255,0.06); border: 0.5px solid rgba(255,255,255,0.15); color: #fff; font-size: 1.2rem; width: 42px; height: 42px; border-radius: 10px; cursor: pointer; align-items: center; justify-content: center; }
+.mobile-menu { position: absolute; top: 100%; left: 0; right: 0; background: #080b14; border-bottom: 0.5px solid rgba(255,255,255,0.12); box-shadow: 0 20px 50px rgba(0,0,0,0.6); display: flex; flex-direction: column; padding: 0.5rem; gap: 0.2rem; z-index: 200; }
+.mobile-menu-item { background: transparent; border: none; color: rgba(230,240,255,0.85); font-size: 1rem; font-weight: 600; text-align: left; padding: 0.9rem 1rem; border-radius: 10px; cursor: pointer; }
+.mobile-menu-item:hover, .mobile-menu-item:active { background: rgba(0,198,255,0.12); color: #fff; }
 @media (max-width:640px) {
   .nav-links { display: none; }
+  .nav-hamburger { display: flex; }
+  .nav { position: relative; }
   .pred-row { grid-template-columns: 1fr 1fr; }
   .pred-row > :last-child { grid-column: span 2; border-radius: 0 0 16px 16px; }
   .storage-row { grid-template-columns: 1fr 1fr; }
@@ -2164,11 +2170,11 @@ function DownloadsPage({ priceADA, Logo, showToast }) {
             React.createElement("div", { className: "dl-platforms" }, ["🪟 Windows 10/11", "🍎 macOS 12+", "⬡ Post-Quantum", "🔒 AES-256", "📱 Mobile Sync"].map((p, i) => (React.createElement("div", { key: i, className: "platform-chip" }, p))))),
         React.createElement("div", { className: "dl-content" },
             React.createElement("div", { className: "dl-grid" }, [
-                { os: "Windows", icon: "🪟", version: "v1.0.0", arch: "x64", ext: ".exe & .msi", size: "~85 MB" },
-                { os: "macOS", icon: "🍎", version: "v1.0.0", arch: "Intel · Apple Silicon", ext: ".dmg universal", size: "~92 MB" },
+                { os: "Windows", icon: "🪟", img: "/win-icon.png", version: "v1.0.0", arch: "x64", ext: ".exe & .msi", size: "~85 MB" },
+                { os: "macOS", icon: "🍎", img: "/mac-icon.png", version: "v1.0.0", arch: "Intel · Apple Silicon", ext: ".dmg universal", size: "~92 MB" },
             ].map(app => (React.createElement("div", { key: app.os, className: "dl-app-card" },
                 React.createElement("div", { className: "dl-card-header" },
-                    React.createElement("div", { className: "dl-os-icon" }, app.icon),
+                    React.createElement("div", { className: "dl-os-icon" }, app.img ? React.createElement("img", { src: app.img, alt: app.os, style: { width: "100%", height: "100%", objectFit: "contain" } }) : app.icon),
                     React.createElement("div", null,
                         React.createElement("div", { className: "dl-card-title" },
                             "QuantumAI Vault for ",
@@ -4153,6 +4159,7 @@ function QuantumAI() {
     const [availWallets, setAvailWallets] = useState([]); // detected CIP-30 wallets
     const [walletConnecting, setWalletConnecting] = useState(null); // key being connected
     const [page, setPage] = useState("home"); // "home" | "markets" | "chat" | "downloads" | "cloud"
+    const [mobileMenu, setMobileMenu] = useState(false);
     // When the page changes (any nav link, pill, or footer link), jump the viewport
     // to the top of the new page's content — fixes mobile staying scrolled midway.
     useEffect(() => {
@@ -5241,6 +5248,15 @@ in a safe. Never share it with anyone.
                 React.createElement("button", { className: "nav-pill", style: page === "downloads" ? { color: "#fff", background: "rgba(255,255,255,0.08)" } : {}, onClick: () => setPage(p => p === "downloads" ? "home" : "downloads") }, page === "downloads" ? "← Home" : "Downloads"),
                 React.createElement("button", { className: "nav-pill", style: page === "cloud" ? { color: "#fff", background: "rgba(255,255,255,0.08)" } : {}, onClick: () => setPage(p => p === "cloud" ? "home" : "cloud") }, page === "cloud" ? "← Home" : "Cloud"),
                 React.createElement("button", { className: "nav-pill", style: page === "vault" ? { color: "#fff", background: "rgba(0,198,255,0.15)" } : { color: "var(--gold)" }, onClick: () => setPage(p => p === "vault" ? "home" : "vault") }, page === "vault" ? "← Home" : "Quantum Vault")),
+            React.createElement("button", { className: "nav-hamburger", onClick: () => setMobileMenu(m => !m), "aria-label": "Menu" }, mobileMenu ? "✕" : "☰"),
+            mobileMenu && (React.createElement("div", { className: "mobile-menu" }, [
+                { label: "Home", act: () => { setPage("home"); setTimeout(() => scrollTo("home"), 50); } },
+                { label: "Markets", act: () => setPage("markets") },
+                { label: "AXIS AI", act: () => setPage("chat") },
+                { label: "Downloads", act: () => setPage("downloads") },
+                { label: "Cloud", act: () => setPage("cloud") },
+                { label: "Quantum Vault", act: () => setPage("vault"), gold: true },
+            ].map((item, i) => (React.createElement("button", { key: i, className: "mobile-menu-item", style: item.gold ? { color: "var(--gold)" } : {}, onClick: () => { item.act(); setMobileMenu(false); } }, item.label))))),
             wallet
                 ? React.createElement("button", { className: "btn-wallet connected", onClick: disconnectWallet, title: `${wallet.addr ? shortAddr(wallet.addr) : wallet.name} · Click to disconnect` },
                     React.createElement("span", { className: "wallet-dot" }),
@@ -5261,14 +5277,14 @@ in a safe. Never share it with anyone.
                 React.createElement(Logo, { w: 140, h: 140, r: 26, style: { boxShadow: "0 0 0 1px rgba(0,198,255,0.25), 0 20px 60px rgba(0,114,255,0.3), 0 0 80px rgba(0,198,255,0.15)" } })),
             React.createElement("div", { className: "hero-eyebrow" },
                 React.createElement("span", { className: "hero-eyebrow-dot" }),
-                "Cardano Blockchain \u00B7 $QAI Token"),
+                "Encryption \u00B7 Backup \u00B7 Private AI \u2014 on your own device"),
             React.createElement("h1", { className: "hero-title" },
-                React.createElement("span", { className: "line1" }, "Quantum"),
-                React.createElement("span", { className: "line2" }, "Encrypted Finance")),
-            React.createElement("p", { className: "hero-sub" }, "Post-quantum cryptography meets DeFi on Cardano. Trade $QAI, protect your assets with lattice-based encryption, and leverage AI-powered market intelligence."),
+                React.createElement("span", { className: "line1" }, "Never lose"),
+                React.createElement("span", { className: "line2" }, "what matters to you")),
+            React.createElement("p", { className: "hero-sub" }, "QuantumAI encrypts your files, backs them up so you never lose them \u2014 and no one but you can ever read them. Plus a private AI assistant that stays on your device and inside limits you set and can see."),
             React.createElement("div", { className: "hero-actions" },
-                React.createElement("button", { className: "btn-primary", onClick: () => setWalletModal(true) }, "Connect Wallet"),
-                React.createElement("button", { className: "btn-secondary", onClick: () => scrollTo("price") }, "View Live Price"))),
+                React.createElement("button", { className: "btn-primary", onClick: () => setPage("downloads") }, "Download the Vault"),
+                React.createElement("button", { className: "btn-secondary", onClick: () => scrollTo("price") }, "Explore $QAI"))),
         React.createElement("div", { className: "ticker" },
             React.createElement("div", { className: "ticker-track" }, [...tickers, ...tickers])),
         page === "markets" && (React.createElement(MarketsPage, { Logo: Logo, showToast: showToast })),
@@ -5697,6 +5713,43 @@ in a safe. Never share it with anyone.
                         React.createElement("button", { className: "modal-cancel", onClick: () => setShowDownload(false) }, "Cancel"))))));
         })(),
         page === "home" && (React.createElement(React.Fragment, null,
+            React.createElement("section", { id: "what", style: { padding: "4.5rem 1.25rem 1rem" } },
+                React.createElement("div", { className: "section-inner" },
+                    React.createElement("span", { className: "section-eyebrow" }, "What QuantumAI does"),
+                    React.createElement("h2", { className: "section-title" }, "Three things, done right"),
+                    React.createElement("p", { className: "section-sub", style: { maxWidth: 640 } }, "Built around one promise: you never lose what matters, and no one but you can read it. Everything runs on your own device."),
+                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: "1.1rem", marginTop: "2.5rem" } }, [
+                        { icon: "🔐", title: "Real encryption", body: "AES-256 encryption for your files. The password lives only in your head — we can't read your files, and neither can anyone else. Not \"we won't.\" We can't." },
+                        { icon: "☁️", title: "Backup that warns you first", body: "Keep encrypted copies where you choose. QuantumAI notices when something important isn't backed up and tells you — before you lose it, not after." },
+                        { icon: "🤖", title: "A private AI that stays in bounds", body: "An assistant that can work with your files and connected accounts — but only inside limits you set and can see. Anything that sends, spends, or deletes asks you first. Some things it can never do." },
+                    ].map((f, i) => (React.createElement("div", { key: i, style: { background: "rgba(255,255,255,0.03)", border: "0.5px solid rgba(255,255,255,0.1)", borderRadius: 16, padding: "1.6rem" } },
+                        React.createElement("div", { style: { fontSize: "1.8rem", marginBottom: ".7rem" } }, f.icon),
+                        React.createElement("div", { style: { fontWeight: 700, fontSize: "1.05rem", marginBottom: ".5rem" } }, f.title),
+                        React.createElement("div", { style: { fontSize: ".88rem", color: "rgba(180,210,255,0.7)", lineHeight: 1.6 } }, f.body))))),
+                    React.createElement("div", { style: { marginTop: "2rem", textAlign: "center" } },
+                        React.createElement("button", { className: "btn-primary", onClick: () => setPage("downloads") }, "Download the Vault"),
+                        React.createElement("p", { style: { fontSize: ".76rem", color: "rgba(180,210,255,0.5)", marginTop: ".9rem" } }, "Windows & Mac. The AI assistant is optional and runs a local model on your own hardware.")))),
+            React.createElement("section", { id: "assistant", style: { padding: "3.5rem 1.25rem 1rem" } },
+                React.createElement("div", { className: "section-inner" },
+                    React.createElement("span", { className: "section-eyebrow" }, "The AI assistant"),
+                    React.createElement("h2", { className: "section-title" }, "Powerful \u2014 and kept on a leash you hold"),
+                    React.createElement("p", { className: "section-sub", style: { maxWidth: 680 } }, "Most AI tools ask you to trust them. QuantumAI's assistant is built so you don't have to. It runs on your own device, and every action it can take is something you switch on, see, and approve. The safety isn't a setting \u2014 it's the architecture."),
+                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: "1.1rem", marginTop: "2.5rem" } }, [
+                        { icon: "🎚️", title: "Off until you allow it", body: "Every capability starts off. You turn on exactly what you want — reading files, drafting content, nothing more. What you don't enable, it can't do." },
+                        { icon: "✋", title: "Asks before it acts", body: "Anything that sends, spends, posts, or deletes stops and asks you first. The AI proposes; you decide. It can never act on your money or accounts on its own." },
+                        { icon: "🔒", title: "Some things are never allowed", body: "Reading your keys, escaping its folder, disabling its own limits — these are locked by design. No setting, mode, or update can turn them on." },
+                        { icon: "📜", title: "A full record of what it did", body: "An activity log shows every action — what ran, what was blocked, what you approved. You can always see exactly what happened." },
+                        { icon: "🧠", title: "Private by default", body: "The assistant thinks using a model that runs entirely on your machine. No API keys, no cloud, no data leaving your device." },
+                        { icon: "🔌", title: "Works with your tools", body: "Connect the accounts and services you already use, with your own credentials — kept on your device, never relayed through us." },
+                    ].map((f, i) => (React.createElement("div", { key: i, style: { background: "rgba(255,255,255,0.03)", border: "0.5px solid rgba(255,255,255,0.1)", borderRadius: 16, padding: "1.5rem" } },
+                        React.createElement("div", { style: { fontSize: "1.6rem", marginBottom: ".6rem" } }, f.icon),
+                        React.createElement("div", { style: { fontWeight: 700, fontSize: "1rem", marginBottom: ".45rem" } }, f.title),
+                        React.createElement("div", { style: { fontSize: ".85rem", color: "rgba(180,210,255,0.7)", lineHeight: 1.6 } }, f.body))))),
+                    React.createElement("div", { style: { marginTop: "2.5rem", padding: "1.3rem 1.5rem", background: "rgba(255,179,64,0.06)", border: "0.5px solid rgba(255,179,64,0.3)", borderRadius: 14, maxWidth: 760, marginLeft: "auto", marginRight: "auto" } },
+                        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: ".5rem", marginBottom: ".4rem" } },
+                            React.createElement("span", { style: { fontSize: "1.1rem" } }, "\uD83E\uDDEA"),
+                            React.createElement("span", { style: { fontWeight: 700, fontSize: ".95rem", color: "#ffb340" } }, "Honest note: this is early, and some of it is beta")),
+                        React.createElement("p", { style: { fontSize: ".84rem", color: "rgba(180,210,255,0.75)", lineHeight: 1.6, margin: 0 } }, "The encryption and backup are the solid, proven core. The AI assistant and its connectors are newer and still being tested \u2014 some features are in beta and may have rough edges or need setup. We'd rather tell you that than pretend everything's polished. Try it, and tell us what breaks.")))),
             React.createElement("section", { id: "price" },
                 React.createElement("div", { className: "section-inner" },
                     React.createElement("span", { className: "section-eyebrow" }, "Live DEX Market Data"),
@@ -5998,10 +6051,4 @@ in a safe. Never share it with anyone.
         toast && React.createElement("div", { className: "toast" }, toast)));
 }
 
-(function(){
-  if (typeof React === "undefined" || typeof ReactDOM === "undefined") {
-    document.getElementById("root").innerHTML = '<div style="color:#eaf4ff;text-align:center;margin:18vh auto;max-width:520px"><h1 style="color:#00C6FF">QuantumAI</h1><p>Couldn\'t load libraries. Refresh.</p></div>';
-    return;
-  }
-  ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(QuantumAI));
-})();
+const __root=document.getElementById("root");if(__root&&typeof QuantumAI!=="undefined"){ReactDOM.createRoot(__root).render(React.createElement(QuantumAI));}
