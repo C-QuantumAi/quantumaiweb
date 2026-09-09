@@ -1121,9 +1121,13 @@ body {
 
 /* ── TICKER ── */
 .ticker {
-  background: rgba(255,255,255,0.03);
-  border-top: 0.5px solid var(--border); border-bottom: 0.5px solid var(--border);
-  padding: 0; overflow: hidden; position: relative;
+  position: fixed; top: 60px; left: 0; right: 0; z-index: 998;
+  height: 34px; display: flex; align-items: center;
+  background: rgba(0,4,8,0.7);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 0.5px solid var(--border);
+  padding: 0; overflow: hidden;
 }
 .ticker-track {
   display: flex; gap: 0; width: max-content;
@@ -1453,7 +1457,7 @@ footer {
 @keyframes toast-in { from { transform: translateY(16px) scale(0.95); opacity:0; } to { transform: translateY(0) scale(1); opacity:1; } }
 
 /* ── DOWNLOADS PAGE ── */
-.dl-page { padding-top: 80px; min-height: 100vh; }
+.dl-page { padding-top: 104px; min-height: 100vh; }
 .dl-hero {
   text-align: center; padding: 4rem 1.5rem 3rem;
   background: radial-gradient(ellipse 80% 50% at 50% 0%, rgba(0,114,255,0.12) 0%, transparent 70%);
@@ -1611,6 +1615,7 @@ footer {
   .nav-links { display: none; }
   .nav-hamburger { display: flex; }
   .nav { position: relative; }
+  .ticker { position: relative; top: 0; }
   .pred-row { grid-template-columns: 1fr 1fr; }
   .pred-row > :last-child { grid-column: span 2; border-radius: 0 0 16px 16px; }
   .storage-row { grid-template-columns: 1fr 1fr; }
@@ -1626,7 +1631,7 @@ footer {
   --hud-gold: #ffcf5c;
   position: relative;
   min-height: 100vh;
-  padding-top: 72px;
+  padding-top: 104px;
   background:
     radial-gradient(ellipse 60% 50% at 50% 0%, rgba(56,224,255,0.06), transparent 70%),
     repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(56,224,255,0.012) 3px, transparent 4px),
@@ -5275,6 +5280,8 @@ in a safe. Never share it with anyone.
                     wallet.qai.toLocaleString(),
                     " QAI")
                 : React.createElement("button", { className: "btn-wallet", onClick: () => setWalletModal(true) }, "Connect Wallet")),
+        React.createElement("div", { className: "ticker" },
+            React.createElement("div", { className: "ticker-track" }, [...tickers, ...tickers])),
         React.createElement("div", { id: "page-top", style: { position: "absolute", top: 0, left: 0, height: 1, width: 1 }, "aria-hidden": "true" }),
         page === "home" && (React.createElement("section", { id: "home", className: "hero" },
             React.createElement("div", { className: "hero-glow-1" }),
@@ -5297,8 +5304,6 @@ in a safe. Never share it with anyone.
             React.createElement("div", { style: { marginTop: "3.5rem", maxWidth: 920, marginLeft: "auto", marginRight: "auto", padding: "0 1rem" } },
                 React.createElement("img", { src: "/vault-preview.png", alt: "QuantumAI Vault app preview \u2014 encryption, backup, and a private local AI assistant", style: { width: "100%", height: "auto", borderRadius: 14, border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 40px 100px rgba(0,0,0,0.5)" } }),
                 React.createElement("p", { style: { fontSize: ".72rem", color: "rgba(180,210,255,0.45)", marginTop: ".8rem" } }, "A look inside QuantumAI Vault \u2014 your files, your backup, your AI, all on your device.")))),
-        React.createElement("div", { className: "ticker" },
-            React.createElement("div", { className: "ticker-track" }, [...tickers, ...tickers])),
         page === "markets" && (React.createElement(MarketsPage, { Logo: Logo, showToast: showToast })),
         page === "downloads" && (React.createElement(DownloadsPage, { priceADA: priceADA, Logo: Logo, showToast: showToast })),
         page === "cloud" && (React.createElement("div", { style: { minHeight: "100vh", padding: "calc(var(--nav-h,64px) + 2rem) 1.25rem 4rem", maxWidth: 760, margin: "0 auto" } },
