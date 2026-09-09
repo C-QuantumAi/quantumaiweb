@@ -5276,7 +5276,7 @@ in a safe. Never share it with anyone.
                     " QAI")
                 : React.createElement("button", { className: "btn-wallet", onClick: () => setWalletModal(true) }, "Connect Wallet")),
         React.createElement("div", { id: "page-top", style: { position: "absolute", top: 0, left: 0, height: 1, width: 1 }, "aria-hidden": "true" }),
-        React.createElement("section", { id: "home", className: "hero" },
+        page === "home" && (React.createElement("section", { id: "home", className: "hero" },
             React.createElement("div", { className: "hero-glow-1" }),
             React.createElement("div", { className: "hero-glow-2" }),
             React.createElement(ParticleField, null),
@@ -5296,7 +5296,7 @@ in a safe. Never share it with anyone.
                 React.createElement("button", { className: "btn-secondary", onClick: () => scrollTo("price") }, "Explore $QAI")),
             React.createElement("div", { style: { marginTop: "3.5rem", maxWidth: 920, marginLeft: "auto", marginRight: "auto", padding: "0 1rem" } },
                 React.createElement("img", { src: "/vault-preview.png", alt: "QuantumAI Vault app preview \u2014 encryption, backup, and a private local AI assistant", style: { width: "100%", height: "auto", borderRadius: 14, border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 40px 100px rgba(0,0,0,0.5)" } }),
-                React.createElement("p", { style: { fontSize: ".72rem", color: "rgba(180,210,255,0.45)", marginTop: ".8rem" } }, "A look inside QuantumAI Vault \u2014 your files, your backup, your AI, all on your device."))),
+                React.createElement("p", { style: { fontSize: ".72rem", color: "rgba(180,210,255,0.45)", marginTop: ".8rem" } }, "A look inside QuantumAI Vault \u2014 your files, your backup, your AI, all on your device.")))),
         React.createElement("div", { className: "ticker" },
             React.createElement("div", { className: "ticker-track" }, [...tickers, ...tickers])),
         page === "markets" && (React.createElement(MarketsPage, { Logo: Logo, showToast: showToast })),
