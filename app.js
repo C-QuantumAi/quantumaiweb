@@ -2144,6 +2144,19 @@ function DownloadsPage({ priceADA, Logo, showToast }) {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
+    const features = [
+        "AES-256-GCM encryption — only your password unlocks your files",
+        "Personal cloud backup — your own PC as a private server, reachable from your phone",
+        "Private local AI assistant — runs on your device via Ollama/LM Studio (or your own cloud key)",
+        "Creates real documents: Word, Excel, PowerPoint, PDF & SVG — plus PDF editing",
+        "Agent safety model: everything risky is off by default & asks approval; keys/wallets permanently locked",
+        "Trade Agent for crypto & stocks — fail-safe: starts in dry-run, you choose if it ever goes live",
+        "Live prices (CoinGecko/Finnhub) & multi-angle trade analysis — never financial advice",
+        "Skills, saved Workflows, agent memory & an extensive beginner Knowledge Base",
+        "Connect your own tools & accounts — your credentials stay encrypted on your device",
+        "Nothing leaves your device by default — no servers, no data collection",
+        "One-time payment — no subscription",
+    ];
     const faqs = [
         { q: "Is this a subscription?", a: "No. It's a one-time payment of $5.00 USD equivalent. Pay once, use forever with all future updates included." },
         { q: "Why pay in crypto?", a: "QuantumAI is a Cardano-native project. Accepting $QAI, ADA, BTC and USDT keeps everything decentralized and borderless — no banks, no chargebacks." },
