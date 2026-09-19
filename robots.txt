@@ -1,0 +1,5 @@
+# QuantumAI.computer — robots.txt
+User-agent: *
+Allow: /
+
+Sitemap: https://quantumai.computer/sitemap.xml

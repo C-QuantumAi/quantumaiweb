@@ -1,0 +1,7 @@
+# Static SEO files and API are served directly (listed first, before the SPA catch-all)
+/sitemap.xml   /sitemap.xml   200
+/robots.txt    /robots.txt    200
+# API functions handle their own routes (do not fall back to the SPA)
+# (Cloudflare runs /functions/api/* automatically)
+# SPA fallback: every other path serves the app shell
+/*             /index.html    200
