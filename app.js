@@ -870,7 +870,7 @@ async function callClaude(msgs, persona = "axis", custom = null) {
             }
             const d = await r.json();
             if (d.reply)
-                return { reply: d.reply, fallback: !!d.fallback };
+                return { reply: d.reply, fallback: !!d.fallback, sources: d.sources || null };
             if (d.error) {
                 if (/api[_ ]?key|not configured|ANTHROPIC/i.test(d.error))
                     return { reply: "⚠ The AI isn't set up yet: the site owner needs to add the ANTHROPIC_API_KEY in Cloudflare → Settings → Environment variables (as a Secret), then redeploy." };
@@ -2144,16 +2144,6 @@ function DownloadsPage({ priceADA, Logo, showToast }) {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
-    const features = [
-        "AES-256-GCM encryption — only your password unlocks your files",
-        "Personal cloud backup — your own PC as a private server",
-        "Private local AI assistant — runs on your device, no cloud",
-        "Agent with safety controls: approvals, limits & activity log",
-        "Drag-and-drop file encryption vault",
-        "Connect your own tools & accounts (your credentials stay local)",
-        "Nothing leaves your device — no servers, no data collection",
-        "One-time payment — no subscription",
-    ];
     const faqs = [
         { q: "Is this a subscription?", a: "No. It's a one-time payment of $5.00 USD equivalent. Pay once, use forever with all future updates included." },
         { q: "Why pay in crypto?", a: "QuantumAI is a Cardano-native project. Accepting $QAI, ADA, BTC and USDT keeps everything decentralized and borderless — no banks, no chargebacks." },
@@ -4922,6 +4912,7 @@ in a safe. Never share it with anyone.
             const result = await callClaude(hist, persona, { sys: sysWithSources });
             const reply = typeof result === "string" ? result : result.reply;
             const isFallback = typeof result === "object" && result.fallback;
+            const replySources = (typeof result === "object" && result.sources) ? result.sources : null;
             if (isFallback)
                 setOnBackup(true);
             else
@@ -4952,7 +4943,7 @@ in a safe. Never share it with anyone.
             const stopped = stopRef.current;
             stopRef.current = false;
             setStreaming(false);
-            setChatMsgs(m => { const copy = m.slice(); copy[copy.length - 1] = { role: "bot", text: acc, backup: isFallback, stopped: stopped || undefined }; return copy; });
+            setChatMsgs(m => { const copy = m.slice(); copy[copy.length - 1] = { role: "bot", text: acc, backup: isFallback, stopped: stopped || undefined, sources: replySources || undefined }; return copy; });
         }
         catch {
             setChatLoading(false);
@@ -5520,7 +5511,18 @@ in a safe. Never share it with anyone.
                                             React.createElement("button", { className: "hud-play", onClick: () => speakAs(m.text, persona), title: "Read aloud" }, "\u25B6"),
                                             React.createElement("button", { className: "hud-play", onClick: () => copyMessage(m.text, i), title: "Copy" }, copiedIdx === i ? "✓" : "⧉"),
                                             isLastBot && (React.createElement("button", { className: "hud-play", onClick: regenerateLast, title: "Regenerate this reply" }, "\u21BB")))),
-                                        m.backup && !m.streaming && (React.createElement("span", { title: "This reply came from the Gemini backup, not Claude.", style: { display: "block", marginTop: "0.4rem", fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.04em", color: "#ff9f0a", opacity: 0.85 } }, "\u26A1 via backup AI")))));
+                                        m.backup && !m.streaming && (React.createElement("span", { title: "This reply came from the Gemini backup, not Claude.", style: { display: "block", marginTop: "0.4rem", fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.04em", color: "#ff9f0a", opacity: 0.85 } }, "\u26A1 via backup AI")),
+                                        m.role === "bot" && !m.streaming && Array.isArray(m.sources) && m.sources.length > 0 && (React.createElement("div", { style: { marginTop: "0.6rem", paddingTop: "0.5rem", borderTop: "1px solid rgba(120,160,220,0.15)" } },
+                                            React.createElement("div", { style: { fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: "rgba(150,190,255,0.5)", marginBottom: "0.35rem" } }, "Sources"),
+                                            React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "0.35rem" } }, m.sources.map((s, si) => (React.createElement("a", { key: si, href: s.url, target: "_blank", rel: "noopener noreferrer", title: s.title || s.url, style: { fontSize: "0.66rem", color: "#7fb0ff", background: "rgba(80,130,220,0.1)", border: "0.5px solid rgba(120,160,220,0.25)", borderRadius: "6px", padding: "0.15rem 0.5rem", textDecoration: "none", maxWidth: "200px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
+                                                si + 1,
+                                                ". ",
+                                                (() => { try {
+                                                    return new URL(s.url).hostname.replace(/^www\./, "");
+                                                }
+                                                catch {
+                                                    return s.title || s.url;
+                                                } })())))))))));
                             }),
                             chatLoading && (React.createElement("div", { className: "hud-msg bot" },
                                 React.createElement("div", { className: "hud-av" }, pcfg().displayName[0]),
@@ -5968,8 +5970,8 @@ in a safe. Never share it with anyone.
                             React.createElement("div", { className: "enc-label" }, "2 \u00B7 Encryption Standard"),
                             React.createElement("div", { className: "enc-seg" }, [{ id: "aes", label: "AES-256-GCM" }, { id: "quantum", label: "Post-Quantum" }, { id: "sha", label: "SHA-256 Auth" }].map(e => (React.createElement("button", { key: e.id, className: `enc-btn ${encLevel === e.id ? "active" : ""} ${encLevel === e.id && e.id === "quantum" ? "q" : ""}`, onClick: () => setEncLevel(e.id) }, e.label)))),
                             React.createElement("div", { style: { fontSize: "0.68rem", color: "rgba(180,210,255,0.4)", marginBottom: "1.25rem", lineHeight: 1.5 } },
-                                encLevel === "aes" && "AES-256-GCM with PBKDF2 (210k iterations). Military-grade authenticated encryption — fully functional in your browser.",
-                                encLevel === "quantum" && "Post-Quantum mode wraps AES-256-GCM today; the downloadable Vault app adds CRYSTALS-Kyber lattice key exchange for quantum resistance.",
+                                encLevel === "aes" && "AES-256-GCM with PBKDF2 (210k iterations). Strong, standardized authenticated encryption — fully functional in your browser.",
+                                encLevel === "quantum" && "Post-Quantum mode wraps AES-256-GCM today; the downloadable Vault app adds a hybrid X25519 + ML-KEM-768 key exchange for its cloud sync. (Note: the post-quantum layer is not yet independently audited.)",
                                 encLevel === "sha" && "Adds SHA-256 HMAC authentication over AES-256-GCM. Verifies integrity and detects tampering."),
                             React.createElement("div", { className: "enc-label" }, "3 \u00B7 Encrypt Files"),
                             React.createElement("div", { className: `drop-zone ${isDrag ? "drag" : ""}`, onDragOver: e => { e.preventDefault(); setIsDrag(true); }, onDragLeave: () => setIsDrag(false), onDrop: handleDrop, onClick: () => !vaultBusy && fileRef.current?.click(), style: { opacity: vaultBusy ? 0.6 : 1 } },

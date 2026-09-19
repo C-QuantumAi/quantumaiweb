@@ -108,6 +108,7 @@ DELIVERY:
     // ── Primary: Claude (this IS AXIS). If it fails for any reason, fall back
     //    to Gemini so AXIS stays online instead of showing an error. ──
     let text = null;
+    const sources = [];
     let usedFallback = false;
     let claudeError = null;
 
@@ -124,11 +125,36 @@ DELIVERY:
         });
         if (res.ok) {
           const data = await res.json();
-          text = (data.content || [])
+          const blocks = data.content || [];
+          text = blocks
             .filter((b) => b.type === "text")
             .map((b) => b.text)
             .join("\n")
             .trim();
+          // Collect sources from web_search results AND from inline citations,
+          // so the UI can show "where this came from" (Perplexity-style).
+          const seen = new Set();
+          for (const b of blocks) {
+            // web_search_tool_result blocks list the pages that were searched
+            if (b.type === "web_search_tool_result" && Array.isArray(b.content)) {
+              for (const item of b.content) {
+                if (item && item.url && !seen.has(item.url)) {
+                  seen.add(item.url);
+                  sources.push({ url: item.url, title: item.title || item.url });
+                }
+              }
+            }
+            // text blocks may carry citations referencing specific URLs
+            if (b.type === "text" && Array.isArray(b.citations)) {
+              for (const c of b.citations) {
+                const u = c && (c.url || c.source);
+                if (u && !seen.has(u)) {
+                  seen.add(u);
+                  sources.push({ url: u, title: c.title || c.cited_text?.slice(0, 60) || u });
+                }
+              }
+            }
+          }
         } else {
           claudeError = `Anthropic ${res.status}: ${(await res.text()).slice(0, 200)}`;
         }
@@ -161,7 +187,7 @@ DELIVERY:
     }
 
     return new Response(
-      JSON.stringify({ reply: text, persona: "axis", fallback: usedFallback || undefined }),
+      JSON.stringify({ reply: text, persona: "axis", fallback: usedFallback || undefined, sources: sources.length ? sources.slice(0, 8) : undefined }),
       { status: 200, headers: cors }
     );
   } catch (err) {
