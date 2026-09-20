@@ -5306,7 +5306,7 @@ in a safe. Never share it with anyone.
                 React.createElement("button", { className: "btn-primary", onClick: () => setPage("downloads") }, "Download the Vault"),
                 React.createElement("button", { className: "btn-secondary", onClick: () => scrollTo("price") }, "Explore $QAI")),
             React.createElement("div", { style: { marginTop: "3.5rem", maxWidth: 920, marginLeft: "auto", marginRight: "auto", padding: "0 1rem" } },
-                React.createElement("img", { src: "/vault-preview.png", alt: "QuantumAI Vault app preview \u2014 encryption, backup, and a private local AI assistant", style: { width: "100%", height: "auto", borderRadius: 14, border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 40px 100px rgba(0,0,0,0.5)" } }),
+                React.createElement("video", { src: "/vault-preview.mp4", poster: "/vault-preview.png", autoPlay: true, loop: true, muted: true, playsInline: true, preload: "metadata", "aria-label": "QuantumAI Vault app preview \u2014 encryption, backup, and a private local AI assistant", style: { width: "100%", height: "auto", display: "block", borderRadius: 14, border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 40px 100px rgba(0,0,0,0.5)" } }),
                 React.createElement("p", { style: { fontSize: ".72rem", color: "rgba(180,210,255,0.45)", marginTop: ".8rem" } }, "A look inside QuantumAI Vault \u2014 your files, your backup, your AI, all on your device.")))),
         page === "markets" && (React.createElement(MarketsPage, { Logo: Logo, showToast: showToast })),
         page === "downloads" && (React.createElement(DownloadsPage, { priceADA: priceADA, Logo: Logo, showToast: showToast })),
