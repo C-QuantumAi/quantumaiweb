@@ -1940,6 +1940,30 @@ footer {
 .hud-mic:hover { background: rgba(255,255,255,0.12); }
 .hud-mic.live { border-color: #ff5a4d; color: #ff5a4d; animation: micwave 1.2s infinite; }
 @keyframes micwave { 0% { box-shadow: 0 0 0 0 rgba(255,90,77,0.45); } 70% { box-shadow: 0 0 0 12px rgba(255,90,77,0); } 100% { box-shadow: 0 0 0 0 rgba(255,90,77,0); } }
+
+/* Voice-chat audio-reactive orb (Siri/ChatGPT-style) */
+.vorb {
+  position: absolute; width: 200px; height: 200px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, rgba(0,229,255,0.55), rgba(0,114,255,0.15) 60%, transparent 72%);
+  filter: blur(2px);
+}
+.vorb-core {
+  position: absolute; width: 130px; height: 130px; border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #7fe9ff, #0072ff 65%, #052a4a 100%);
+  box-shadow: 0 0 60px rgba(0,180,255,0.6), inset 0 0 40px rgba(255,255,255,0.25);
+}
+/* listening: gentle steady breathing */
+.vorb.vorb-listening   { animation: vorbPulse 2.4s ease-in-out infinite; }
+.vorb-core.vorb-listening { animation: vorbBreath 2.4s ease-in-out infinite; }
+/* thinking: faster shimmer */
+.vorb.vorb-thinking    { animation: vorbPulse 0.9s ease-in-out infinite; }
+.vorb-core.vorb-thinking { animation: vorbSpin 3s linear infinite, vorbBreath 0.9s ease-in-out infinite; }
+/* speaking: lively, larger swells */
+.vorb.vorb-speaking    { animation: vorbPulse 0.5s ease-in-out infinite; }
+.vorb-core.vorb-speaking { animation: vorbBreath 0.42s ease-in-out infinite; }
+@keyframes vorbPulse  { 0%,100% { transform: scale(1); opacity: 0.7; } 50% { transform: scale(1.25); opacity: 1; } }
+@keyframes vorbBreath { 0%,100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+@keyframes vorbSpin   { from { filter: hue-rotate(0deg); } to { filter: hue-rotate(60deg); } }
 .hud-send {
   flex-shrink: 0; width: 42px; height: 42px; border-radius: 50%; cursor: pointer; font-size: 1.15rem;
   background: linear-gradient(135deg, var(--hud), var(--hud-accent2)); border: none; color: #001018; font-weight: 700;
@@ -4233,6 +4257,9 @@ function QuantumAI() {
     const [voiceOn, setVoiceOn] = useState(false); // text-to-speech toggle
     const [listening, setListening] = useState(false); // mic active
     const recognitionRef = useRef(null);
+    const [voiceMode, setVoiceMode] = useState(false); // full-screen voice-chat overlay
+    const [voiceState, setVoiceState] = useState("idle"); // idle | listening | thinking | speaking
+    const voiceModeRef = useRef(false); // for use inside async callbacks
     // ── Per-user personalization (saved to this browser) ──
     const [showSettings, setShowSettings] = useState(false);
     // ── External data sources (curated toggles + on-device custom) ──
@@ -5050,6 +5077,135 @@ in a safe. Never share it with anyone.
             showToast("Couldn't start the microphone — check browser mic permissions");
         }
     };
+    // ── VOICE CHAT MODE (hands-free: listen → answer → speak → listen) ──
+    // Reuses the existing speech recognition + synthesis + chat. The full-screen
+    // overlay shows an audio-reactive orb whose state tracks the conversation.
+    const voiceListen = () => {
+        if (!voiceModeRef.current)
+            return;
+        const SR = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
+        if (!SR) {
+            showToast("Voice not supported here — try Chrome/Edge/Safari");
+            return;
+        }
+        try {
+            window.speechSynthesis && window.speechSynthesis.cancel();
+        }
+        catch { }
+        const rec = new SR();
+        const vv = pickVoice(persona, pcfg().voiceURI);
+        rec.lang = (vv && vv.lang) || "en-US";
+        rec.interimResults = true;
+        rec.continuous = false;
+        rec.maxAlternatives = 1;
+        let finalText = "";
+        setVoiceState("listening");
+        rec.onresult = (e) => {
+            let interim = "";
+            for (let i = e.resultIndex; i < e.results.length; i++) {
+                const t = e.results[i][0].transcript;
+                if (e.results[i].isFinal)
+                    finalText += t;
+                else
+                    interim += t;
+            }
+        };
+        rec.onerror = (e) => {
+            const err = e?.error || "unknown";
+            if (err === "no-speech" && voiceModeRef.current) {
+                voiceListen();
+                return;
+            } // just keep listening
+            if (err === "not-allowed" || err === "service-not-allowed") {
+                showToast("Microphone blocked — allow mic access");
+                exitVoiceMode();
+            }
+        };
+        rec.onend = async () => {
+            const said = finalText.trim();
+            if (!voiceModeRef.current)
+                return;
+            if (!said) {
+                voiceListen();
+                return;
+            } // heard nothing → listen again
+            setVoiceState("thinking");
+            // send to AXIS and speak the reply
+            try {
+                const hist = chatMsgs.map(m => ({ role: m.role === "bot" ? "assistant" : "user", content: m.text }));
+                setChatMsgs(m => [...m, { role: "user", text: said }]);
+                const result = await callClaude([...hist, { role: "user", content: said }], persona);
+                const reply = typeof result === "string" ? result : result.reply;
+                const srcs = (typeof result === "object" && result.sources) ? result.sources : undefined;
+                setChatMsgs(m => [...m, { role: "bot", text: reply, sources: srcs }]);
+                if (!voiceModeRef.current)
+                    return;
+                setVoiceState("speaking");
+                // speak, then resume listening when done
+                speakVoiceThenListen(reply);
+            }
+            catch (err) {
+                setChatMsgs(m => [...m, { role: "bot", text: "Sorry — I couldn't reach the AI just then." }]);
+                if (voiceModeRef.current)
+                    voiceListen();
+            }
+        };
+        recognitionRef.current = rec;
+        try {
+            rec.start();
+        }
+        catch {
+            if (voiceModeRef.current)
+                setTimeout(voiceListen, 500);
+        }
+    };
+    const speakVoiceThenListen = (text) => {
+        try {
+            if (!("speechSynthesis" in window)) {
+                if (voiceModeRef.current)
+                    voiceListen();
+                return;
+            }
+            window.speechSynthesis.cancel();
+            const cfg = PERSONAS[persona] || PERSONAS.axis;
+            const u = new SpeechSynthesisUtterance(String(text).replace(/[*_#`>]/g, "").slice(0, 1200));
+            const v = pickVoice(persona, pcfg().voiceURI);
+            if (v) {
+                u.voice = v;
+                u.lang = v.lang;
+            }
+            u.rate = persona === "friday" ? 1.06 : 0.97;
+            u.pitch = cfg.gender === "male" ? 0.75 : 1.15;
+            u.onend = () => { if (voiceModeRef.current)
+                voiceListen(); };
+            u.onerror = () => { if (voiceModeRef.current)
+                voiceListen(); };
+            window.speechSynthesis.speak(u);
+        }
+        catch {
+            if (voiceModeRef.current)
+                voiceListen();
+        }
+    };
+    const enterVoiceMode = () => {
+        voiceModeRef.current = true;
+        setVoiceMode(true);
+        setVoiceState("listening");
+        voiceListen();
+    };
+    const exitVoiceMode = () => {
+        voiceModeRef.current = false;
+        setVoiceMode(false);
+        setVoiceState("idle");
+        try {
+            recognitionRef.current?.stop();
+        }
+        catch { }
+        try {
+            window.speechSynthesis && window.speechSynthesis.cancel();
+        }
+        catch { }
+    };
     // Logo — primary: on-chain CExplorer token image; fallback: GitHub org avatar; final: SVG
     const Logo = ({ w = 40, h = 40, r = 9, style = {} }) => imgErr
         ? React.createElement(QAILogoSVG, { size: Math.max(w, h) })
@@ -5556,6 +5712,7 @@ in a safe. Never share it with anyone.
                             attachBusy && React.createElement("span", { style: { fontSize: "0.75rem", color: "rgba(180,210,255,0.6)" } }, "Reading file\u2026"))),
                         React.createElement("div", { className: "hud-inputrow" },
                             React.createElement("button", { className: `hud-mic${listening ? " live" : ""}`, onClick: toggleMic, title: listening ? "Stop listening" : "Speak" }, "\uD83C\uDFA4"),
+                            React.createElement("button", { className: "hud-mic", onClick: enterVoiceMode, title: "Voice conversation mode \u2014 talk hands-free" }, "\uD83D\uDDE3\uFE0F"),
                             React.createElement("button", { className: "hud-mic", onClick: () => attachInputRef.current?.click(), title: "Attach a document or image for AXIS to analyze" }, "\uD83D\uDCCE"),
                             React.createElement("input", { ref: attachInputRef, type: "file", multiple: true, style: { display: "none" }, accept: ".pdf,.txt,.md,.markdown,.csv,.tsv,.json,.log,.xml,.yaml,.yml,.js,.ts,.py,.sol,.html,.css,image/*", onChange: e => { addAttachments(e.target.files); e.target.value = ""; } }),
                             React.createElement("input", { className: "hud-input", value: chatInput, onChange: e => setChatInput(e.target.value), onKeyDown: e => { if (e.key === "Enter" && !e.shiftKey) {
@@ -5578,6 +5735,25 @@ in a safe. Never share it with anyone.
                         "Drop a PDF, whitepaper, spreadsheet, code file, or chart into the chat and ",
                         pcfg().displayName,
                         " will analyze it. Files are read in your browser \u2014 they never leave your device.")),
+                voiceMode && (React.createElement("div", { style: { position: "fixed", inset: 0, zIndex: 4000, background: "radial-gradient(ellipse at center, rgba(6,14,26,0.97), rgba(2,6,12,0.99))", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", backdropFilter: "blur(8px)" } },
+                    React.createElement("div", { style: { position: "relative", width: 260, height: 260, display: "flex", alignItems: "center", justifyContent: "center" } },
+                        React.createElement("div", { className: `vorb vorb-${voiceState}` }),
+                        React.createElement("div", { className: `vorb-core vorb-${voiceState}` })),
+                    React.createElement("div", { style: { marginTop: "2rem", fontSize: "0.95rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#7fd0ff" } },
+                        voiceState === "listening" && "Listening…",
+                        voiceState === "thinking" && "Thinking…",
+                        voiceState === "speaking" && `${pcfg().displayName} is speaking…`,
+                        voiceState === "idle" && "Starting…"),
+                    React.createElement("div", { style: { marginTop: "0.5rem", fontSize: "0.72rem", color: "rgba(150,190,255,0.5)", maxWidth: 340, textAlign: "center", lineHeight: 1.5 } },
+                        "Speak naturally \u2014 ",
+                        pcfg().displayName,
+                        " listens, answers aloud, and logs everything to the chat. Tap below to end."),
+                    React.createElement("div", { style: { marginTop: "1.5rem", maxWidth: 420, width: "90%", maxHeight: 120, overflowY: "auto", fontSize: "0.78rem", lineHeight: 1.5, color: "rgba(200,220,255,0.75)", textAlign: "center" } }, chatMsgs.slice(-2).map((m, i) => (React.createElement("div", { key: i, style: { marginBottom: "0.4rem" } },
+                        React.createElement("span", { style: { color: m.role === "bot" ? "#7fd0ff" : "rgba(255,255,255,0.5)", fontWeight: 700 } },
+                            m.role === "bot" ? pcfg().displayName : "You",
+                            ": "),
+                        m.text.slice(0, 180))))),
+                    React.createElement("button", { onClick: exitVoiceMode, style: { marginTop: "2rem", padding: "0.7rem 2rem", borderRadius: "30px", border: "1px solid rgba(255,80,80,0.4)", background: "rgba(255,60,60,0.12)", color: "#ff8080", fontSize: "0.85rem", fontWeight: 700, cursor: "pointer", letterSpacing: "0.05em" } }, "\u2715 End voice chat"))),
                 showSettings && (React.createElement("div", { className: "overlay", onClick: () => setShowSettings(false) },
                     React.createElement("div", { className: "modal", onClick: e => e.stopPropagation(), style: { maxWidth: 540, textAlign: "left", maxHeight: "85vh", overflowY: "auto" } },
                         React.createElement("div", { className: "modal-title", style: { marginBottom: "0.3rem" } }, "Build your AI"),
