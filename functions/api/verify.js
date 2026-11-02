@@ -12,7 +12,7 @@ export async function onRequestPost({ request, env }) {
   const address = String(body && body.address || "").trim();
   if (!address || address.length > 240) return json({ eligible: false, reason: "Paste a Cardano address." }, 400);
   let res;
-  try { res = await checkHoldings(address, { fetchFn: fetch, minQai: BigInt(env.MIN_QAI || "1"), koiosKey: env.KOIOS_API_KEY || "" }); }
+  try { res = await checkHoldings(address, { fetchFn: fetch, minQai: BigInt(env.MIN_QAI || "1"), koiosKey: env.KOIOS_API_KEY || "", blockfrostKey: env.BLOCKFROST_API_KEY || "" }); }
   catch (e) { return json({ eligible: false, reason: String(e.message || e) }, 502); }
   if (!res.eligible) return json(res);
   const walletKey = "w:" + await sha256Hex(res.stake || address);

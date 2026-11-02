@@ -44,10 +44,14 @@ Pages project → **Settings → Functions**:
 4. **Secrets** (same page, "Encrypt"):
    - `TOKEN_SECRET` — any long random string: `openssl rand -hex 32`. Required; the gate refuses to run without it.
    - `RESEND_API_KEY` — from https://resend.com (free tier is plenty). In Resend, **add and verify `quantumai.computer`** (3 DNS records, they're in your Cloudflare DNS anyway) so mail can come from `forum@quantumai.computer` and land in Gmail's inbox rather than spam. Until the key is set, notes are still saved to the board and the poster is told email isn't configured yet.
+   - `BLOCKFROST_API_KEY` — **recommended, and you already have one** for payment verification. When present it is used first for the holder check (fixed, documented API); Koios is the automatic fallback.
    - `KOIOS_API_KEY` — optional. Koios' free public tier is fine for a launch; a free key at https://koios.rest raises the limits.
 5. Redeploy (push, or "Retry deployment"). Check `https://quantumai.computer/api/platforms` — it should list your platforms and `gateReady: true`.
 
 ## How the gate decides
+
+- Source order: Blockfrost (if `BLOCKFROST_API_KEY` is set) → Koios public API. Koios' asset rows arrive flat or nested under `asset_list` depending on endpoint/version; both shapes are parsed (the v1 bug that reported "No QAI found" for real holders was a nested response summing to zero).
+- When a check fails, the message now says how many asset types were seen and via which source — useful for support.
 
 - `addr1…` → Koios `address_info` → its `stake1…` → `account_assets` summed for the QAI policy+name. So a hardware wallet with funds spread across 20 addresses passes with any one of them.
 - `stake1…` pasted directly → `account_assets` straight away (best option for cold wallets; shown in Daedalus/Eternl under "Staking" / "Rewards address").

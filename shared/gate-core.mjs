@@ -51,7 +51,17 @@ export function classifyAddress(input) {
   return { kind: "invalid" };
 }
 
-// ── holdings via Koios ───────────────────────────────────────────────────
+// ── holdings ─────────────────────────────────────────────────────────────
+// Two independent sources, tried in order:
+//   1. Blockfrost (if BLOCKFROST_API_KEY is set — the site already has one for
+//      payment verification). Fixed, documented response shapes.
+//   2. Koios public API (no key). Its asset rows come back FLAT on newer
+//      versions ({policy_id, asset_name, quantity}) and NESTED on older ones
+//      ({address|stake_address, asset_list:[…]}); both are handled.
+// Either way the WHOLE ACCOUNT (stake key) is summed when one can be resolved.
+export const QAI_UNIT = "354a6c0acd846b195768ead31c92693ad26d82ba013e7df5d9777081514149";
+export const BLOCKFROST = "https://cardano-mainnet.blockfrost.io/api/v0";
+
 async function koios(fetchFn, path, body, apiKey) {
   const headers = { "Content-Type": "application/json", "Accept": "application/json" };
   if (apiKey) headers["Authorization"] = "Bearer " + apiKey;
@@ -60,33 +70,83 @@ async function koios(fetchFn, path, body, apiKey) {
   if (!r.ok) throw new Error("Blockchain lookup failed (" + r.status + ").");
   return r.json();
 }
-function sumQai(rows) {
+// Flatten any Koios asset response into [{policy_id, asset_name, quantity}].
+export function flattenAssets(rows) {
+  const out = [];
+  const take = (a) => { if (a && a.policy_id != null) out.push({ policy_id: a.policy_id, asset_name: a.asset_name, quantity: a.quantity }); };
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (!row || typeof row !== "object") continue;
+    if (row.policy_id != null) take(row);                                   // flat
+    if (Array.isArray(row.asset_list)) row.asset_list.forEach(take);          // nested per address/account
+    if (Array.isArray(row.utxo_set)) for (const u of row.utxo_set) if (u && Array.isArray(u.asset_list)) u.asset_list.forEach(take); // address_info
+  }
+  return out;
+}
+export function sumQai(rows) {
   let q = 0n;
-  for (const row of rows || []) {
-    if (String(row.policy_id || "").toLowerCase() === QAI.policyId && String(row.asset_name || "").toLowerCase() === QAI.assetNameHex) {
-      try { q += BigInt(String(row.quantity || "0")); } catch {}
+  for (const a of flattenAssets(rows)) {
+    if (String(a.policy_id || "").toLowerCase() === QAI.policyId && String(a.asset_name || "").toLowerCase() === QAI.assetNameHex) {
+      try { q += BigInt(String(a.quantity || "0").split(".")[0]); } catch {}
     }
   }
   return q;
 }
-// Returns { eligible, quantity (string), stake, checked: "account"|"address", reason? }
-export async function checkHoldings(input, { fetchFn = fetch, minQai = 1n, koiosKey = "" } = {}) {
+function sumUnits(list) { // Blockfrost [{unit, quantity}]
+  let q = 0n;
+  for (const a of Array.isArray(list) ? list : []) if (String(a.unit || "").toLowerCase() === QAI_UNIT) { try { q += BigInt(String(a.quantity || "0")); } catch {} }
+  return q;
+}
+
+async function viaBlockfrost(fetchFn, c, key) {
+  const h = { headers: { project_id: key, Accept: "application/json" } };
+  const get = async (path) => { const r = await fetchFn(BLOCKFROST + path, h); if (r.status === 404) return null; if (r.status === 429) throw new Error("The blockchain lookup service is busy (rate limited). Try again in a minute."); if (!r.ok) throw new Error("Blockchain lookup failed (" + r.status + ")."); return r.json(); };
+  let stake = c.kind === "stake" ? c.address : null, addrAssets = null;
+  if (!stake) {
+    const info = await get("/addresses/" + c.address);
+    if (!info) return { seen: false };
+    stake = info.stake_address || null; addrAssets = info.amount || [];
+  }
+  if (stake) {
+    let all = [], page = 1;
+    while (page <= 10) { const chunk = await get(`/accounts/${stake}/addresses/assets?count=100&page=${page}`); if (!chunk || !chunk.length) break; all = all.concat(chunk); if (chunk.length < 100) break; page++; }
+    return { seen: true, stake, quantity: sumUnits(all), checked: "account", assets: all.length };
+  }
+  return { seen: true, stake: null, quantity: sumUnits(addrAssets), checked: "address", assets: (addrAssets || []).length };
+}
+async function viaKoios(fetchFn, c, apiKey) {
+  let stake = c.kind === "stake" ? c.address : null, infoRows = null;
+  if (!stake) {
+    infoRows = await koios(fetchFn, "/address_info", { _addresses: [c.address] }, apiKey);
+    if (!infoRows || !infoRows.length) return { seen: false };
+    stake = infoRows[0] && infoRows[0].stake_address ? String(infoRows[0].stake_address) : null;
+  }
+  if (stake) {
+    const rows = await koios(fetchFn, "/account_assets", { _stake_addresses: [stake] }, apiKey);
+    return { seen: true, stake, quantity: sumQai(rows), checked: "account", assets: flattenAssets(rows).length };
+  }
+  let rows = await koios(fetchFn, "/address_assets", { _addresses: [c.address] }, apiKey);
+  let q = sumQai(rows), n = flattenAssets(rows).length;
+  if (q === 0n && infoRows) { q = sumQai(infoRows); n = Math.max(n, flattenAssets(infoRows).length); } // UTxO view as a second opinion
+  return { seen: true, stake: null, quantity: q, checked: "address", assets: n };
+}
+
+// Returns { eligible, quantity (string), stake, checked: "account"|"address", provider, reason? }
+export async function checkHoldings(input, { fetchFn = fetch, minQai = 1n, koiosKey = "", blockfrostKey = "" } = {}) {
   const c = classifyAddress(input);
   if (c.kind === "invalid") return { eligible: false, reason: "That doesn't look like a Cardano address. Paste an address starting with addr1… or stake1…." };
   if (c.kind === "testnet") return { eligible: false, reason: "That's a testnet address. QAI lives on Cardano mainnet." };
-  let stake = c.kind === "stake" ? c.address : null;
-  if (!stake) {
-    const info = await koios(fetchFn, "/address_info", { _addresses: [c.address] }, koiosKey);
-    stake = info && info[0] && info[0].stake_address ? String(info[0].stake_address) : null;
-    if (!info || !info.length) return { eligible: false, reason: "That address hasn't been seen on-chain yet (no transactions). Use an address that has received funds, or your stake1… address." };
+  const providers = [];
+  if (blockfrostKey) providers.push(["blockfrost", () => viaBlockfrost(fetchFn, c, blockfrostKey)]);
+  providers.push(["koios", () => viaKoios(fetchFn, c, koiosKey)]);
+  let res = null, lastErr = null, provider = null;
+  for (const [name, fn] of providers) {
+    try { res = await fn(); provider = name; if (res.seen) break; } catch (e) { lastErr = e; res = null; }
   }
-  let rows, checked;
-  if (stake) { rows = await koios(fetchFn, "/account_assets", { _stake_addresses: [stake] }, koiosKey); checked = "account"; }
-  else { rows = await koios(fetchFn, "/address_assets", { _addresses: [c.address] }, koiosKey); checked = "address"; }
-  const q = sumQai(rows);
-  const min = BigInt(minQai);
-  return { eligible: q >= min, quantity: q.toString(), stake: stake || null, checked, minQai: min.toString(),
-    reason: q >= min ? undefined : (q > 0n ? `This wallet holds ${q} QAI; at least ${min} is required.` : "No QAI found in this wallet (checked the whole account, not just one address).") };
+  if (!res) throw lastErr || new Error("Blockchain lookup failed.");
+  if (!res.seen) return { eligible: false, provider, reason: "That address hasn't been seen on-chain yet (no transactions). Use an address that has received funds, or your stake1… address." };
+  const q = res.quantity, min = BigInt(minQai);
+  return { eligible: q >= min, quantity: q.toString(), stake: res.stake || null, checked: res.checked, provider, minQai: min.toString(), assetsSeen: res.assets,
+    reason: q >= min ? undefined : (q > 0n ? `This wallet holds ${q} QAI; at least ${min} is required.` : `No QAI found in this ${res.checked === "account" ? "wallet (checked the whole account, not just one address)" : "address"}.` + (res.checked === "address" ? " If your wallet has a stake key, paste your stake1… address so the whole wallet is counted." : "")) };
 }
 
 // ── signed, short-lived download tokens (HMAC-SHA256, Web Crypto) ────────
