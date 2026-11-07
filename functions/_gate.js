@@ -15,5 +15,5 @@ export async function overLimit(env, key, limit, windowSec) {
   await env.GATE.put(k, String(cur), { expirationTtl: windowSec + 5 });
   return cur > limit;
 }
-export function configuredPlatforms(env) { return PLATFORMS.filter(p => env["R2_KEY_" + p.toUpperCase()] || env["DOWNLOAD_URL_" + p.toUpperCase()]); }
+export function configuredPlatforms(env) { return PLATFORMS.filter(p => env["R2_KEY_" + p.toUpperCase()] || env["DOWNLOAD_URL_" + p.toUpperCase()] || (env.GITHUB_TOKEN && env.GITHUB_RELEASE_REPO && env["GH_ASSET_" + p.toUpperCase()])); }
 export const needSecret = (env) => env.TOKEN_SECRET ? null : json({ error: "Server not configured: set the TOKEN_SECRET environment variable in Cloudflare Pages." }, 500);
