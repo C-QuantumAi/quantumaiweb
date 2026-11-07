@@ -28,9 +28,10 @@ export async function onRequestGet({ request, env, params }) {
   const ghAsset = env["GH_ASSET_" + platform.toUpperCase()];
   if (env.GITHUB_TOKEN && env.GITHUB_RELEASE_REPO && ghAsset) {
     try {
-      const loc = await githubAssetUrl(env.GITHUB_TOKEN, env.GITHUB_RELEASE_REPO, env.GITHUB_RELEASE_TAG || "latest", ghAsset);
-      if (!loc) return json({ error: `The installer "${ghAsset}" isn't on the ${env.GITHUB_RELEASE_TAG || "latest"} release yet.` }, 404);
-      return Response.redirect(loc, 302);
+      const r = await githubAssetUrl(env.GITHUB_TOKEN, env.GITHUB_RELEASE_REPO, env.GITHUB_RELEASE_TAG || "latest", ghAsset);
+      if (r.url) return Response.redirect(r.url, 302);
+      if (r.reason === "no-release") return json({ error: `No published release found in ${env.GITHUB_RELEASE_REPO}. Drafts and pre-releases don't count as "latest" — open the release on GitHub and click Publish release (or set GITHUB_RELEASE_TAG to its tag).` }, 404);
+      return json({ error: `The release ${r.tag || ""} has no file named "${ghAsset}". Files on it: ${r.assets && r.assets.length ? r.assets.join(", ") : "(none)"}. Set GH_ASSET_${platform.toUpperCase()} to one of those exact names (GitHub turns spaces into dots).` }, 404);
     } catch (e) { return json({ error: "Couldn't fetch the installer from the release: " + String(e.message || e) }, 502); }
   }
   return json({ error: "No installer configured for this platform." }, 404);
@@ -41,15 +42,16 @@ export async function githubAssetUrl(token, repo, tag, assetName, fetchFn = fetc
   const h = { Authorization: "Bearer " + token, "User-Agent": "QuantumAI-site/1.0", "X-GitHub-Api-Version": "2022-11-28" };
   const relPath = tag === "latest" ? "releases/latest" : "releases/tags/" + encodeURIComponent(tag);
   const rel = await fetchFn(`https://api.github.com/repos/${repo}/${relPath}`, { headers: { ...h, Accept: "application/vnd.github+json" } });
-  if (rel.status === 404) return null;
+  if (rel.status === 404) return { url: null, reason: "no-release" };
+  if (rel.status === 401 || rel.status === 403) throw new Error("GitHub refused the token (" + rel.status + "). Check GITHUB_TOKEN has Contents: Read-only on " + repo + ".");
   if (!rel.ok) throw new Error("GitHub release lookup failed (" + rel.status + ")");
   const data = await rel.json();
+  const names = (data.assets || []).map(a => a.name);
   const asset = (data.assets || []).find(a => a.name === assetName);
-  if (!asset) return null;
+  if (!asset) return { url: null, reason: "no-asset", tag: data.tag_name, assets: names };
   // Asking for the binary with redirect:"manual" yields the pre-signed location without downloading it.
   const bin = await fetchFn(`https://api.github.com/repos/${repo}/releases/assets/${asset.id}`, { headers: { ...h, Accept: "application/octet-stream" }, redirect: "manual" });
   const loc = bin.headers.get("location");
-  if (loc) return loc;
-  if (bin.ok) return asset.url; // very old API behaviour: served inline; fall back to the API url (needs auth) — practically never hit
+  if (loc) return { url: loc, tag: data.tag_name };
   throw new Error("GitHub did not provide a download location (" + bin.status + ")");
 }

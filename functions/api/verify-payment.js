@@ -59,6 +59,20 @@ export async function onRequestPost(context) {
     } else {
       return bad({ error: "Unsupported coin" });
     }
+    // A confirmed payment unlocks the same signed, short-lived download links a
+    // verified holder gets — the installers are never exposed by a fixed URL.
+    if (result && result.ok && env.TOKEN_SECRET) {
+      try {
+        const { signToken, configuredPlatforms, overLimit, sha256Hex } = await import("../_gate.js");
+        const payKey = "pay:" + (await sha256Hex(coin + ":" + txHash.toLowerCase()));
+        // one transaction hash can fetch the installers a handful of times (retries, both platforms), not forever
+        if (await overLimit(env, payKey, parseInt(env.DAILY_PER_PAYMENT || "8", 10), 86400)) return ok({ ...result, token: null, tokenReason: "This payment has already been used for today's downloads. Try again tomorrow or contact support." });
+        const ttlMin = parseInt(env.TOKEN_TTL_MIN || "15", 10);
+        result.token = await signToken(env.TOKEN_SECRET, { jti: crypto.randomUUID(), w: payKey.slice(4, 20), exp: Date.now() + ttlMin * 60000 });
+        result.expiresInMin = ttlMin;
+        result.platforms = configuredPlatforms(env);
+      } catch (e) { result.tokenReason = "Payment verified, but a download link couldn't be issued: " + String(e.message || e); }
+    }
     return ok(result);
   } catch (e) {
     return bad({ error: String(e.message || e) });
