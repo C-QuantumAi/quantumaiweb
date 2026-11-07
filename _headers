@@ -9,3 +9,11 @@
 
 /logo.png
   Cache-Control: public, max-age=86400
+
+# The page itself must always revalidate so a new deployment (new hashed
+# bundle) is picked up on the next visit instead of a browser-cached page.
+/
+  Cache-Control: no-cache
+
+/index.html
+  Cache-Control: no-cache
