@@ -63,7 +63,7 @@ export const QAI_UNIT = "354a6c0acd846b195768ead31c92693ad26d82ba013e7df5d977708
 export const BLOCKFROST = "https://cardano-mainnet.blockfrost.io/api/v0";
 
 async function koios(fetchFn, path, body, apiKey) {
-  const headers = { "Content-Type": "application/json", "Accept": "application/json" };
+  const headers = { "Content-Type": "application/json", "Accept": "application/json", "User-Agent": "QuantumAI-site/1.0 (+https://quantumai.computer)" };
   if (apiKey) headers["Authorization"] = "Bearer " + apiKey;
   const r = await fetchFn(KOIOS + path, { method: "POST", headers, body: JSON.stringify(body) });
   if (r.status === 429) throw new Error("The blockchain lookup service is busy (rate limited). Try again in a minute.");
@@ -81,6 +81,17 @@ export function flattenAssets(rows) {
     if (Array.isArray(row.utxo_set)) for (const u of row.utxo_set) if (u && Array.isArray(u.asset_list)) u.asset_list.forEach(take); // address_info
   }
   return out;
+}
+// Koios /account_addresses: [{stake_address, addresses:[…]}] on newer versions, or flat [{address}].
+export function flattenAddresses(rows) {
+  const out = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (!row) continue;
+    if (typeof row === "string") out.push(row);
+    else if (Array.isArray(row.addresses)) for (const a of row.addresses) out.push(typeof a === "string" ? a : a && a.address);
+    else if (row.address) out.push(row.address);
+  }
+  return out.filter(Boolean);
 }
 export function sumQai(rows) {
   let q = 0n;
@@ -107,9 +118,19 @@ async function viaBlockfrost(fetchFn, c, key) {
     stake = info.stake_address || null; addrAssets = info.amount || [];
   }
   if (stake) {
-    let all = [], page = 1;
-    while (page <= 10) { const chunk = await get(`/accounts/${stake}/addresses/assets?count=100&page=${page}`); if (!chunk || !chunk.length) break; all = all.concat(chunk); if (chunk.length < 100) break; page++; }
-    return { seen: true, stake, quantity: sumUnits(all), checked: "account", assets: all.length };
+    let all = [], page = 1, q = 0n;
+    // account-level asset list, up to 5,000 asset types; stop early once QAI is found
+    while (page <= 50) { const chunk = await get(`/accounts/${stake}/addresses/assets?count=100&page=${page}`); if (!chunk || !chunk.length) break; all = all.concat(chunk); q = sumUnits(all); if (q > 0n || chunk.length < 100) break; page++; }
+    let mode = "account";
+    if (q === 0n) {
+      // last resort: each address of the account, read directly (bounded)
+      try {
+        let addrs = [], p2 = 1;
+        while (p2 <= 5) { const chunk = await get(`/accounts/${stake}/addresses?count=100&page=${p2}`); if (!chunk || !chunk.length) break; addrs = addrs.concat(chunk.map(x => x.address)); if (chunk.length < 100) break; p2++; }
+        for (const a of addrs.slice(0, 200)) { const info = await get("/addresses/" + a); if (info && info.amount) q += sumUnits(info.amount); if (q > 0n) { mode = "addresses"; break; } }
+      } catch {}
+    }
+    return { seen: true, stake, quantity: q, checked: "account", assets: all.length, mode };
   }
   return { seen: true, stake: null, quantity: sumUnits(addrAssets), checked: "address", assets: (addrAssets || []).length };
 }
@@ -121,8 +142,22 @@ async function viaKoios(fetchFn, c, apiKey) {
     stake = infoRows[0] && infoRows[0].stake_address ? String(infoRows[0].stake_address) : null;
   }
   if (stake) {
-    const rows = await koios(fetchFn, "/account_assets", { _stake_addresses: [stake] }, apiKey);
-    return { seen: true, stake, quantity: sumQai(rows), checked: "account", assets: flattenAssets(rows).length };
+    // 1. Targeted: Koios is PostgREST, so the account's asset list can be
+    //    filtered to exactly our policy + name. No pagination can hide it.
+    const filter = `?policy_id=eq.${QAI.policyId}&asset_name=eq.${QAI.assetNameHex}`;
+    let q = 0n, n = 0, mode = "account-filtered";
+    try { const rows = await koios(fetchFn, "/account_assets" + filter, { _stake_addresses: [stake] }, apiKey); q = sumQai(rows); n = flattenAssets(rows).length; } catch { mode = "account"; }
+    // 2. Unfiltered account list (older Koios versions ignore the filter): sum what comes back.
+    if (q === 0n) { const rows = await koios(fetchFn, "/account_assets", { _stake_addresses: [stake] }, apiKey); const fq = sumQai(rows); n = Math.max(n, flattenAssets(rows).length); if (fq > 0n) { q = fq; mode = "account"; } }
+    // 3. Last resort: every address of the account, summed directly (bounded).
+    if (q === 0n) {
+      try {
+        const addrs = await koios(fetchFn, "/account_addresses", { _stake_addresses: [stake], _empty: false }, apiKey);
+        const list = flattenAddresses(addrs).slice(0, 200);
+        if (list.length) { const rows = await koios(fetchFn, "/address_assets", { _addresses: list }, apiKey); const aq = sumQai(rows); n = Math.max(n, flattenAssets(rows).length); if (aq > 0n) { q = aq; mode = "addresses"; } }
+      } catch {}
+    }
+    return { seen: true, stake, quantity: q, checked: "account", assets: n, mode };
   }
   let rows = await koios(fetchFn, "/address_assets", { _addresses: [c.address] }, apiKey);
   let q = sumQai(rows), n = flattenAssets(rows).length;
@@ -145,7 +180,7 @@ export async function checkHoldings(input, { fetchFn = fetch, minQai = 1n, koios
   if (!res) throw lastErr || new Error("Blockchain lookup failed.");
   if (!res.seen) return { eligible: false, provider, reason: "That address hasn't been seen on-chain yet (no transactions). Use an address that has received funds, or your stake1… address." };
   const q = res.quantity, min = BigInt(minQai);
-  return { eligible: q >= min, quantity: q.toString(), stake: res.stake || null, checked: res.checked, provider, minQai: min.toString(), assetsSeen: res.assets,
+  return { eligible: q >= min, quantity: q.toString(), stake: res.stake || null, checked: res.checked, provider, mode: res.mode || res.checked, minQai: min.toString(), assetsSeen: res.assets,
     reason: q >= min ? undefined : (q > 0n ? `This wallet holds ${q} QAI; at least ${min} is required.` : `No QAI found in this ${res.checked === "account" ? "wallet (checked the whole account, not just one address)" : "address"}.` + (res.checked === "address" ? " If your wallet has a stake key, paste your stake1… address so the whole wallet is counted." : "")) };
 }
 

@@ -78,3 +78,7 @@ npx wrangler pages dev dist --kv GATE # serves site + functions locally (set TOK
 ## Cloud page (updated 2026-11-06)
 
 The site's **Cloud** page is now a launcher, not a client. Since Vault 1.5 every Personal Cloud session runs inside a post-quantum channel served by the Vault itself, and the Vault only talks to pages it served. The page validates the address, calls the Vault's one cross-origin endpoint (`GET /api/ping`, allowed for `https://quantumai.computer` only; returns app name, protocol version and identity fingerprint — nothing secret), shows the fingerprint for comparison with the desktop, and opens `<vault>/?s=<vault>` in a new tab. Usernames and passwords never touch the website. No Functions or secrets are involved.
+
+## Holder lookup, hardened (2026-11-06)
+
+If a holder sees "No QAI found": the message now ends with a diagnostic line — which provider answered, whether the whole account (stake1…) or one address was checked, and how many asset types were seen. The lookup now (1) asks Koios the targeted question (`/account_assets?policy_id=eq.<policy>&asset_name=eq.514149`, PostgREST filter) so pagination can never hide QAI, (2) falls back to the unfiltered account list, (3) then sweeps every address of the account. Blockfrost (when `BLOCKFROST_API_KEY` is set) scans up to 5,000 asset types and sweeps addresses the same way. A message **without** the diagnostic tail means the deployed site predates the Oct-29 fix — republish.
