@@ -73,3 +73,8 @@ npx wrangler pages dev dist --kv GATE # serves site + functions locally (set TOK
 - The lookup depends on Koios being up. If it's rate-limited the user is told to retry in a minute; the paid path still works.
 - Email goes through Resend; the board itself never depends on email.
 - The site's "Connect Wallet" button at the top is the existing one; the gate has its own connect flow and never asks the wallet to sign anything.
+
+
+## Cloud page (updated 2026-11-06)
+
+The site's **Cloud** page is now a launcher, not a client. Since Vault 1.5 every Personal Cloud session runs inside a post-quantum channel served by the Vault itself, and the Vault only talks to pages it served. The page validates the address, calls the Vault's one cross-origin endpoint (`GET /api/ping`, allowed for `https://quantumai.computer` only; returns app name, protocol version and identity fingerprint — nothing secret), shows the fingerprint for comparison with the desktop, and opens `<vault>/?s=<vault>` in a new tab. Usernames and passwords never touch the website. No Functions or secrets are involved.
