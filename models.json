@@ -1,106 +1,374 @@
 {
-  "version": 1,
-  "updated": "2026-08-27",
-  "note": "Edit this file to add/remove models. The app fetches it live — no app update needed. Add an \"added\" ISO date to a model to show a NEW badge to users.",
-  "models": [
-    {
-      "id": "qwen2.5:7b",
-      "family": "Qwen",
-      "params": "7B",
-      "min_ram": 8,
-      "ideal_vram": 6,
-      "disk_gb": 4.7,
-      "strengths": "coding, reasoning",
-      "speed": "fast on most machines",
-      "tag": "qwen2.5:7b"
-    },
-    {
-      "id": "qwen2.5:14b",
-      "family": "Qwen",
-      "params": "14B",
-      "min_ram": 16,
-      "ideal_vram": 10,
-      "disk_gb": 9,
-      "strengths": "strong coding, reasoning",
-      "speed": "needs a capable machine",
-      "tag": "qwen2.5:14b"
-    },
-    {
-      "id": "qwen2.5:32b",
-      "family": "Qwen",
-      "params": "32B",
-      "min_ram": 32,
-      "ideal_vram": 20,
-      "disk_gb": 20,
-      "strengths": "top-tier reasoning, coding",
-      "speed": "slow without a strong GPU",
-      "tag": "qwen2.5:32b"
-    },
-    {
-      "id": "llama3.1:8b",
-      "family": "Llama",
-      "params": "8B",
-      "min_ram": 8,
-      "ideal_vram": 6,
-      "disk_gb": 4.9,
-      "strengths": "general text, dialogue",
-      "speed": "fast on most machines",
-      "tag": "llama3.1:8b"
-    },
-    {
-      "id": "llama3.1:70b",
-      "family": "Llama",
-      "params": "70B",
-      "min_ram": 64,
-      "ideal_vram": 40,
-      "disk_gb": 40,
-      "strengths": "high-end reasoning",
-      "speed": "needs a high-end workstation",
-      "tag": "llama3.1:70b"
-    },
-    {
-      "id": "mistral:7b",
-      "family": "Mistral",
-      "params": "7B",
-      "min_ram": 8,
-      "ideal_vram": 5,
-      "disk_gb": 4.1,
-      "strengths": "fast, lightweight",
-      "speed": "fast on most machines",
-      "tag": "mistral:7b"
-    },
-    {
-      "id": "gemma2:2b",
-      "family": "Gemma",
-      "params": "2B",
-      "min_ram": 4,
-      "ideal_vram": 2,
-      "disk_gb": 1.6,
-      "strengths": "very light, low-spec",
-      "speed": "very fast, runs almost anywhere",
-      "tag": "gemma2:2b"
-    },
-    {
-      "id": "gemma2:9b",
-      "family": "Gemma",
-      "params": "9B",
-      "min_ram": 10,
-      "ideal_vram": 7,
-      "disk_gb": 5.4,
-      "strengths": "balanced, efficient",
-      "speed": "fast on a decent machine",
-      "tag": "gemma2:9b"
-    },
-    {
-      "id": "phi3:mini",
-      "family": "Phi",
-      "params": "3.8B",
-      "min_ram": 6,
-      "ideal_vram": 4,
-      "disk_gb": 2.3,
-      "strengths": "tiny, capable, low-spec",
-      "speed": "very fast, low-spec friendly",
-      "tag": "phi3:mini"
-    }
-  ]
+ "version": 1,
+ "updated": "2026-11-08",
+ "note": "Edit this file to add/remove models. The app fetches it live — no app update needed. Add an \"added\" ISO date to a model to show a NEW badge to users. RAM floors cross-checked against GPT4All's catalog (q4: ~1B→2 GB, 1.5B→3, 3–4B→4, 7–8B→8, 13–14B→16).",
+ "models": [
+  {
+   "id": "qwen2.5:7b",
+   "family": "Qwen",
+   "params": "7B",
+   "min_ram": 8,
+   "ideal_vram": 6,
+   "disk_gb": 4.7,
+   "strengths": "coding, reasoning",
+   "speed": "fast on most machines",
+   "tag": "qwen2.5:7b",
+   "tasks": [
+    "coding",
+    "reasoning",
+    "general"
+   ],
+   "vision": false
+  },
+  {
+   "id": "qwen2.5:14b",
+   "family": "Qwen",
+   "params": "14B",
+   "min_ram": 16,
+   "ideal_vram": 10,
+   "disk_gb": 9,
+   "strengths": "strong coding, reasoning",
+   "speed": "needs a capable machine",
+   "tag": "qwen2.5:14b",
+   "tasks": [
+    "coding",
+    "reasoning",
+    "general"
+   ],
+   "vision": false
+  },
+  {
+   "id": "qwen2.5:32b",
+   "family": "Qwen",
+   "params": "32B",
+   "min_ram": 32,
+   "ideal_vram": 20,
+   "disk_gb": 20,
+   "strengths": "top-tier reasoning, coding",
+   "speed": "slow without a strong GPU",
+   "tag": "qwen2.5:32b",
+   "tasks": [
+    "coding",
+    "reasoning"
+   ],
+   "vision": false
+  },
+  {
+   "id": "llama3.1:8b",
+   "family": "Llama",
+   "params": "8B",
+   "min_ram": 8,
+   "ideal_vram": 6,
+   "disk_gb": 4.9,
+   "strengths": "general text, dialogue",
+   "speed": "fast on most machines",
+   "tag": "llama3.1:8b",
+   "tasks": [
+    "writing",
+    "general",
+    "chat"
+   ],
+   "vision": false
+  },
+  {
+   "id": "llama3.1:70b",
+   "family": "Llama",
+   "params": "70B",
+   "min_ram": 64,
+   "ideal_vram": 40,
+   "disk_gb": 40,
+   "strengths": "high-end reasoning",
+   "speed": "needs a high-end workstation",
+   "tag": "llama3.1:70b",
+   "tasks": [
+    "reasoning",
+    "writing",
+    "general"
+   ],
+   "vision": false
+  },
+  {
+   "id": "mistral:7b",
+   "family": "Mistral",
+   "params": "7B",
+   "min_ram": 8,
+   "ideal_vram": 5,
+   "disk_gb": 4.1,
+   "strengths": "fast, lightweight",
+   "speed": "fast on most machines",
+   "tag": "mistral:7b",
+   "tasks": [
+    "general",
+    "chat",
+    "fast"
+   ],
+   "vision": false
+  },
+  {
+   "id": "gemma2:2b",
+   "family": "Gemma",
+   "params": "2B",
+   "min_ram": 4,
+   "ideal_vram": 2,
+   "disk_gb": 1.6,
+   "strengths": "very light, low-spec",
+   "speed": "very fast, runs almost anywhere",
+   "tag": "gemma2:2b",
+   "tasks": [
+    "fast",
+    "chat"
+   ],
+   "vision": false
+  },
+  {
+   "id": "gemma2:9b",
+   "family": "Gemma",
+   "params": "9B",
+   "min_ram": 10,
+   "ideal_vram": 7,
+   "disk_gb": 5.4,
+   "strengths": "balanced, efficient",
+   "speed": "fast on a decent machine",
+   "tag": "gemma2:9b",
+   "tasks": [
+    "general",
+    "writing",
+    "chat"
+   ],
+   "vision": false
+  },
+  {
+   "id": "phi3:mini",
+   "family": "Phi",
+   "params": "3.8B",
+   "min_ram": 4,
+   "ideal_vram": 4,
+   "disk_gb": 2.3,
+   "strengths": "tiny, capable, low-spec",
+   "speed": "very fast, low-spec friendly",
+   "tag": "phi3:mini",
+   "tasks": [
+    "fast",
+    "coding",
+    "chat"
+   ],
+   "vision": false
+  },
+  {
+   "id": "llama3.2:1b",
+   "family": "Llama 3.2",
+   "params": "1B",
+   "min_ram": 2,
+   "ideal_vram": 1,
+   "disk_gb": 1.3,
+   "strengths": "smallest usable chat model; runs on almost anything",
+   "speed": "instant, even on old CPUs",
+   "tag": "llama3.2:1b",
+   "tasks": [
+    "chat",
+    "general"
+   ],
+   "vision": false,
+   "added": "2026-11-08"
+  },
+  {
+   "id": "llama3.2:3b",
+   "family": "Llama 3.2",
+   "params": "3B",
+   "min_ram": 4,
+   "ideal_vram": 3,
+   "disk_gb": 2,
+   "strengths": "best quality under 4 GB; good summaries and drafts",
+   "speed": "fast on any modern laptop",
+   "tag": "llama3.2:3b",
+   "tasks": [
+    "chat",
+    "writing",
+    "summary",
+    "general"
+   ],
+   "vision": false,
+   "added": "2026-11-08"
+  },
+  {
+   "id": "qwen2.5:1.5b",
+   "family": "Qwen",
+   "params": "1.5B",
+   "min_ram": 3,
+   "ideal_vram": 2,
+   "disk_gb": 1,
+   "strengths": "tiny, surprisingly capable at structured output",
+   "speed": "instant",
+   "tag": "qwen2.5:1.5b",
+   "tasks": [
+    "general",
+    "coding"
+   ],
+   "vision": false,
+   "added": "2026-11-08"
+  },
+  {
+   "id": "qwen2.5:3b",
+   "family": "Qwen",
+   "params": "3B",
+   "min_ram": 4,
+   "ideal_vram": 3,
+   "disk_gb": 1.9,
+   "strengths": "small, good at coding and JSON for its size",
+   "speed": "fast on any modern laptop",
+   "tag": "qwen2.5:3b",
+   "tasks": [
+    "coding",
+    "general"
+   ],
+   "vision": false,
+   "added": "2026-11-08"
+  },
+  {
+   "id": "deepseek-r1:7b",
+   "family": "DeepSeek R1 (distill)",
+   "params": "7B",
+   "min_ram": 8,
+   "ideal_vram": 6,
+   "disk_gb": 4.7,
+   "strengths": "step-by-step reasoning; shows its thinking",
+   "speed": "fast on most machines, slower replies (it thinks first)",
+   "tag": "deepseek-r1:7b",
+   "tasks": [
+    "reasoning",
+    "coding"
+   ],
+   "vision": false,
+   "added": "2026-11-08"
+  },
+  {
+   "id": "deepseek-r1:14b",
+   "family": "DeepSeek R1 (distill)",
+   "params": "14B",
+   "min_ram": 16,
+   "ideal_vram": 10,
+   "disk_gb": 9,
+   "strengths": "strong reasoning for hard questions and math",
+   "speed": "needs a capable machine",
+   "tag": "deepseek-r1:14b",
+   "tasks": [
+    "reasoning",
+    "coding"
+   ],
+   "vision": false,
+   "added": "2026-11-08"
+  },
+  {
+   "id": "moondream:latest",
+   "family": "Moondream",
+   "params": "1.8B",
+   "min_ram": 4,
+   "ideal_vram": 3,
+   "disk_gb": 1.7,
+   "strengths": "tiny vision model, runs on low-spec / CPU",
+   "speed": "very fast",
+   "tag": "moondream",
+   "tasks": [
+    "vision",
+    "fast"
+   ],
+   "vision": true
+  },
+  {
+   "id": "gemma3:4b",
+   "family": "Gemma 3 (Google)",
+   "params": "4B",
+   "min_ram": 5,
+   "ideal_vram": 4,
+   "disk_gb": 3.3,
+   "strengths": "modern vision + text, efficient",
+   "speed": "fast on a decent machine",
+   "tag": "gemma3:4b",
+   "tasks": [
+    "vision",
+    "general"
+   ],
+   "vision": true
+  },
+  {
+   "id": "qwen2.5vl:7b",
+   "family": "Qwen2.5-VL (Alibaba)",
+   "params": "7B",
+   "min_ram": 8,
+   "ideal_vram": 6,
+   "disk_gb": 6,
+   "strengths": "strong image understanding & OCR",
+   "speed": "fast on a decent GPU",
+   "tag": "qwen2.5vl:7b",
+   "tasks": [
+    "vision",
+    "general"
+   ],
+   "vision": true
+  },
+  {
+   "id": "minicpm-v:8b",
+   "family": "MiniCPM-V (OpenBMB)",
+   "params": "8B",
+   "min_ram": 10,
+   "ideal_vram": 7,
+   "disk_gb": 5.5,
+   "strengths": "compact, strong OCR & captions",
+   "speed": "needs a decent GPU",
+   "tag": "minicpm-v",
+   "tasks": [
+    "vision",
+    "general"
+   ],
+   "vision": true
+  },
+  {
+   "id": "llama3.2-vision:11b",
+   "family": "Llama 3.2 Vision (Meta)",
+   "params": "11B",
+   "min_ram": 12,
+   "ideal_vram": 8,
+   "disk_gb": 7.9,
+   "strengths": "sees & describes images, general purpose",
+   "speed": "needs a decent GPU",
+   "tag": "llama3.2-vision:11b",
+   "tasks": [
+    "vision",
+    "general"
+   ],
+   "vision": true
+  },
+  {
+   "id": "granite3.2-vision:2b",
+   "family": "Granite Vision (IBM)",
+   "params": "2B",
+   "min_ram": 5,
+   "ideal_vram": 4,
+   "disk_gb": 2.4,
+   "strengths": "documents, charts, tables",
+   "speed": "fast, low-spec friendly",
+   "tag": "granite3.2-vision",
+   "tasks": [
+    "vision",
+    "general"
+   ],
+   "vision": true
+  },
+  {
+   "id": "llava:7b",
+   "family": "LLaVA (legacy)",
+   "params": "7B",
+   "min_ram": 8,
+   "ideal_vram": 6,
+   "disk_gb": 4.7,
+   "strengths": "older vision model — light, for quick CPU experiments",
+   "speed": "fast",
+   "tag": "llava:7b",
+   "tasks": [
+    "vision",
+    "chat"
+   ],
+   "vision": true
+  }
+ ]
 }
