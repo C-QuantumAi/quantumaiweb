@@ -27,10 +27,12 @@ export async function onRequestPost({ request, env }) {
   let body; try { body = await request.json(); } catch { return json({ ok: false, reason: "Bad request." }, 400); }
   const v = validatePost(body || {});
   if (!v.ok) return v.reason === "spam" ? json({ ok: true, id: "ok" }) : json({ ok: false, reason: v.reason }, 400); // honeypot: pretend success
-  const id = Date.now().toString(36) + "-" + crypto.randomUUID().slice(0, 8);
-  const when = new Date().toISOString();
+  // Monotonic timestamp: two posts in the same millisecond still list newest-first.
+  const nowMs = Math.max(Date.now(), (globalThis.__qaiLastPostMs || 0) + 1); globalThis.__qaiLastPostMs = nowMs;
+  const id = nowMs.toString(36) + "-" + crypto.randomUUID().slice(0, 8);
+  const when = new Date(nowMs).toISOString();
   const ipHash = (await sha256Hex(ip + (env.TOKEN_SECRET || ""))).slice(0, 12);
-  if (env.GATE) await env.GATE.put("post:" + String(9999999999999 - Date.now()).padStart(13, "0") + ":" + id, JSON.stringify({ id, when, ...v.post }), { expirationTtl: 60 * 60 * 24 * 365 });
+  if (env.GATE) await env.GATE.put("post:" + String(9999999999999 - nowMs).padStart(13, "0") + ":" + id, JSON.stringify({ id, when, ...v.post }), { expirationTtl: 60 * 60 * 24 * 365 });
   const mail = await sendEmail(env, v.post, { id, when, ipHash });
   return json({ ok: true, id, emailed: mail.ok, note: mail.ok ? undefined : "Saved to the board. Email delivery isn't configured yet (" + mail.reason + ")." });
 }
